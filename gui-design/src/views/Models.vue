@@ -286,10 +286,7 @@ import {
   listModels, createModel, deleteModel,
   listProviders, getProvider, createOffer, updateOffer, deleteOffer,
 } from '../api/index.js'
-import { usePostSave } from '../composables/useToast.js'
-
 const showToast = inject('showToast')
-const showPostSave = usePostSave()
 
 const loading = ref(true)
 const error = ref(null)
@@ -449,8 +446,7 @@ async function saveModel() {
       max_output_tokens: form.value.max_output_tokens || undefined,
       description: form.value.description || undefined,
     })
-    showPostSave()
-    showToast(`模型 "${form.value.slug}" 已暂存${editingSlug.value ? '更新' : '创建'}`, 'success')
+    showToast(`模型 "${form.value.slug}" 已保存并生效`, 'success')
     closeModal()
     fetchData()
   } catch (e) {
@@ -464,8 +460,7 @@ async function doDelete() {
   if (!deleteTarget.value) return
   try {
     await deleteModel(deleteTarget.value.slug)
-    showPostSave()
-    showToast(`模型 "${deleteTarget.value.slug}" 删除已暂存`, 'success')
+    showToast(`模型 "${deleteTarget.value.slug}" 已删除`, 'success')
     deleteTarget.value = null
     fetchData()
   } catch (e) {
@@ -492,8 +487,7 @@ async function saveOffer() {
       cache_read: offerForm.value.cache_read || undefined,
       priority: offerForm.value.priority ?? undefined,
     })
-    showPostSave()
-    showToast('Offer 已暂存', 'success')
+    showToast('Offer 已保存并生效', 'success')
     showOfferModal.value = false
   } catch (e) {
     showToast(`保存失败: ${e.message}`, 'error')
@@ -529,7 +523,6 @@ async function saveQuickLink() {
       cache_write: quickForm.value.cache_write || undefined,
       cache_read: quickForm.value.cache_read || undefined,
     })
-    showPostSave()
     showToast(`✅ "${quickLinkProvider.value}" 已关联 "${quickLinkSlug.value}"`, 'success')
     cancelQuickLink()
     fetchOffers(quickLinkSlug.value)
@@ -567,7 +560,6 @@ async function saveEditOffer() {
       priority: editForm.value.priority ?? undefined,
       upstream_name: editForm.value.upstream_name || undefined,
     })
-    showPostSave()
     showToast(`✅ "${editTargetProvider.value}" 的 Offer 已更新`, 'success')
     const slug = editTargetKey.value
     cancelEditOffer()
@@ -579,8 +571,7 @@ async function saveEditOffer() {
 async function deleteOfferItem(o) {
   try {
     await deleteOffer(o.provider_key, o.model)
-    showPostSave()
-    showToast('Offer 删除已暂存', 'success')
+    showToast('Offer 已删除', 'success')
   } catch (e) { showToast(`删除失败: ${e.message}`, 'error') }
 }
 

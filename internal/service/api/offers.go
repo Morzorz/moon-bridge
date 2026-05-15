@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"moonbridge/internal/config"
-	"moonbridge/internal/service/store"
 )
 
 // ---- Offers ----
@@ -38,31 +37,33 @@ func (r *Router) handleCreateOffer(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	afterJSON, _ := json.Marshal(map[string]any{
-		"provider_key":  providerKey,
-		"model_slug":    body.Model,
-		"upstream_name": body.UpstreamName,
-		"priority":      body.Priority,
-		"input_price":   body.InputPrice,
-		"output_price":  body.OutputPrice,
-		"cache_write":   body.CacheWrite,
-		"cache_read":    body.CacheRead,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "create",
-		Resource:  "offer",
-		TargetKey: providerKey + "/" + body.Model,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		def, ok := cfg.ProviderDefs[providerKey]
+		if !ok {
+			return fmt.Errorf("provider %q 不存在", providerKey)
+		}
+		def.Offers = append(def.Offers, config.OfferEntry{
+			Model:        body.Model,
+			UpstreamName: body.UpstreamName,
+			Priority:     body.Priority,
+			Pricing: config.ModelPricing{
+				InputPrice:      body.InputPrice,
+				OutputPrice:     body.OutputPrice,
+				CacheWritePrice: body.CacheWrite,
+				CacheReadPrice:  body.CacheRead,
+			},
+		})
+		cfg.ProviderDefs[providerKey] = def
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Offer 已创建并生效",
 	})
 }
 
@@ -148,27 +149,46 @@ func (r *Router) handleUpdateOffer(w http.ResponseWriter, req *http.Request) {
 		after["cache_read"] = 0.0
 	}
 
-	afterJSON, _ := json.Marshal(after)
-
-	action := "update"
-	if currentOffer == nil {
-		action = "create"
-	}
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    action,
-		Resource:  "offer",
-		TargetKey: providerKey + "/" + modelSlug,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		def, ok := cfg.ProviderDefs[providerKey]
+		if !ok {
+			return fmt.Errorf("provider %q 不存在", providerKey)
+		}
+		for i := range def.Offers {
+			if def.Offers[i].Model == modelSlug {
+				o := &def.Offers[i]
+				if body.UpstreamName != nil {
+					o.UpstreamName = *body.UpstreamName
+				}
+				if body.Priority != nil {
+					o.Priority = *body.Priority
+				}
+				if body.InputPrice != nil {
+					o.Pricing.InputPrice = *body.InputPrice
+				}
+				if body.OutputPrice != nil {
+					o.Pricing.OutputPrice = *body.OutputPrice
+				}
+				if body.CacheWrite != nil {
+					o.Pricing.CacheWritePrice = *body.CacheWrite
+				}
+				if body.CacheRead != nil {
+					o.Pricing.CacheReadPrice = *body.CacheRead
+				}
+				cfg.ProviderDefs[providerKey] = def
+				return nil
+			}
+		}
+		return fmt.Errorf("offer %s/%s 不存在", providerKey, modelSlug)
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("更新失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Offer 已更新并生效",
 	})
 }
 
@@ -181,25 +201,32 @@ func (r *Router) handleDeleteOffer(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	beforeJSON, _ := json.Marshal(map[string]any{
-		"provider_key": providerKey,
-		"model_slug":   modelSlug,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "delete",
-		Resource:  "offer",
-		TargetKey: providerKey + "/" + modelSlug,
-		Before:    string(beforeJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		def, ok := cfg.ProviderDefs[providerKey]
+		if !ok {
+			return fmt.Errorf("provider %q 不存在", providerKey)
+		}
+		filtered := make([]config.OfferEntry, 0, len(def.Offers))
+		for _, o := range def.Offers {
+			if o.Model != modelSlug {
+				filtered = append(filtered, o)
+			}
+		}
+		if len(filtered) == len(def.Offers) {
+			return fmt.Errorf("offer %s/%s 不存在", providerKey, modelSlug)
+		}
+		def.Offers = filtered
+		cfg.ProviderDefs[providerKey] = def
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存删除失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("删除失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Offer 已删除并生效",
 	})
 }
 

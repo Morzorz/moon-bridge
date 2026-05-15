@@ -15,6 +15,7 @@ type ResponseConfig struct {
 	Client          *http.Client
 	Tracer          *mbtrace.Tracer
 	TraceErrors     io.Writer
+	IsEnabled func() bool
 }
 
 type ResponseServer struct {
@@ -23,6 +24,7 @@ type ResponseServer struct {
 	client          *http.Client
 	tracer          *mbtrace.Tracer
 	traceErrors     io.Writer
+	isEnabled       func() bool
 }
 
 func NewResponse(cfg ResponseConfig) (*ResponseServer, error) {
@@ -40,10 +42,15 @@ func NewResponse(cfg ResponseConfig) (*ResponseServer, error) {
 		client:          client,
 		tracer:          cfg.Tracer,
 		traceErrors:     cfg.TraceErrors,
+		isEnabled:       cfg.IsEnabled,
 	}, nil
 }
 
 func (server *ResponseServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if server.isEnabled != nil && !server.isEnabled() {
+		http.Error(writer, "OpenAI 代理未启用", http.StatusNotFound)
+		return
+	}
 	server.serveProxy(writer, request)
 }
 

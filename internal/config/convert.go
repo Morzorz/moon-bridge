@@ -36,11 +36,13 @@ func (cfg Config) ToFileConfig() FileConfig {
 		Persistence: PersistenceFileConfig{ActiveProvider: cfg.Persistence.ActiveProvider},
 		Proxy: ProxyFileConfig{
 			Response: ProxyTargetFileConfig{
+				Enabled: cfg.ResponseProxy.Enabled,
 				BaseURL: cfg.ResponseProxy.ProviderBaseURL,
 				APIKey:  cfg.ResponseProxy.ProviderAPIKey,
 				Model:   cfg.ResponseProxy.Model,
 			},
 			Anthropic: ProxyTargetFileConfig{
+				Enabled: cfg.AnthropicProxy.Enabled,
 				BaseURL: cfg.AnthropicProxy.ProviderBaseURL,
 				APIKey:  cfg.AnthropicProxy.ProviderAPIKey,
 				Model:   cfg.AnthropicProxy.Model,

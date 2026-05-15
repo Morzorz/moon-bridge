@@ -145,10 +145,7 @@ import { ref, computed, onMounted, inject } from 'vue'
 import {
   listProviders, createProvider, updateProvider, deleteProvider, testProvider,
 } from '../api/index.js'
-import { usePostSave } from '../composables/useToast.js'
-
 const showToast = inject('showToast')
-const showPostSave = usePostSave()
 
 const loading = ref(true)
 const error = ref(null)
@@ -233,8 +230,7 @@ async function saveProvider() {
       user_agent: form.value.user_agent || undefined,
     }
     await createProvider(form.value.key, body)
-    showPostSave()
-    showToast(`Provider "${form.value.key}" 已暂存${editingKey.value ? '更新' : '创建'}`, 'success')
+    showToast(`Provider "${form.value.key}" 已保存并生效`, 'success')
     closeModal()
     fetchData()
   } catch (e) {
@@ -252,8 +248,7 @@ async function doDelete() {
   if (!deleteTarget.value) return
   try {
     await deleteProvider(deleteTarget.value.key)
-    showPostSave()
-    showToast(`Provider "${deleteTarget.value.key}" 删除已暂存`, 'success')
+    showToast(`Provider "${deleteTarget.value.key}" 已删除`, 'success')
     deleteTarget.value = null
     fetchData()
   } catch (e) {

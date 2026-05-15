@@ -130,6 +130,13 @@ export function deleteRoute(alias) {
 // ===== Settings =====
 export function getMode()              { return request('/settings/mode') }
 export function updateMode(mode)       { return request('/settings/mode', { method: 'PUT', body: JSON.stringify({ mode }) }) }
+export function getCapabilities()      { return request('/capabilities') }
+export function updateResponseProxy(enabled) {
+  return request('/capabilities/proxy/response', { method: 'PUT', body: JSON.stringify({ enabled }) })
+}
+export function updateAnthropicProxy(enabled) {
+  return request('/capabilities/proxy/anthropic', { method: 'PUT', body: JSON.stringify({ enabled }) })
+}
 export function getDefaults()          { return request('/defaults') }
 export function updateDefaults(body) {
   return request('/defaults', { method: 'PUT', body: JSON.stringify(body) })

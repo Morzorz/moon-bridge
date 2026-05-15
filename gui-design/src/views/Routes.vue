@@ -125,10 +125,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, inject } from 'vue'
 import { listRoutes, createRoute, deleteRoute, listModels, listProviders } from '../api/index.js'
-import { usePostSave } from '../composables/useToast.js'
-
 const showToast = inject('showToast')
-const showPostSave = usePostSave()
 
 const loading = ref(true)
 const error = ref(null)
@@ -202,8 +199,7 @@ async function saveRoute() {
       display_name: form.value.display_name || undefined,
       context_window: form.value.context_window || undefined,
     })
-    showPostSave()
-    showToast(`路由 "${form.value.alias}" 已暂存${editingAlias.value ? '更新' : '创建'}`, 'success')
+    showToast(`路由 "${form.value.alias}" 已保存并生效`, 'success')
     showDrawer.value = false
     fetchData()
   } catch (e) {
@@ -217,8 +213,7 @@ async function doDelete() {
   if (!deleteTarget.value) return
   try {
     await deleteRoute(deleteTarget.value.alias)
-    showPostSave()
-    showToast(`路由 "${deleteTarget.value.alias}" 删除已暂存`, 'success')
+    showToast(`路由 "${deleteTarget.value.alias}" 已删除`, 'success')
     deleteTarget.value = null
     fetchData()
   } catch (e) {

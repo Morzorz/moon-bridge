@@ -220,6 +220,7 @@ type ProxyFileConfig struct {
 }
 
 type ProxyTargetFileConfig struct {
+	Enabled bool   `yaml:"enabled" json:"enabled"`
 	BaseURL string `yaml:"base_url" json:"base_url"`
 	APIKey  string `yaml:"api_key" json:"api_key"`
 	Model   string `yaml:"model,omitempty" json:"model,omitempty"`
@@ -245,6 +246,7 @@ func LoadFromFileWithOptions(path string, opts LoadOptions) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.ConfigFilePath = path
 	return cfg, nil
 }
 
@@ -797,8 +799,25 @@ func parseWebSearchSupport(value string) (WebSearchSupport, error) {
 	}
 }
 
+// SaveConfigToFile marshals a Config to YAML and writes it to the given path.
+func SaveConfigToFile(cfg Config, path string) error {
+	fc := cfg.ToFileConfig()
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(fc); err != nil {
+		return fmt.Errorf("yaml marshal: %w", err)
+	}
+	enc.Close()
+	if err := os.WriteFile(path, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
 func FromResponseProxyFileConfig(fileConfig ProxyTargetFileConfig) ResponseProxyConfig {
 	return ResponseProxyConfig{
+		Enabled:         fileConfig.Enabled,
 		Model:           strings.TrimSpace(fileConfig.Model),
 		ProviderBaseURL: strings.TrimRight(strings.TrimSpace(fileConfig.BaseURL), "/"),
 		ProviderAPIKey:  strings.TrimSpace(fileConfig.APIKey),
@@ -807,6 +826,7 @@ func FromResponseProxyFileConfig(fileConfig ProxyTargetFileConfig) ResponseProxy
 
 func FromAnthropicProxyFileConfig(fileConfig ProxyTargetFileConfig) AnthropicProxyConfig {
 	return AnthropicProxyConfig{
+		Enabled:         fileConfig.Enabled,
 		Model:           strings.TrimSpace(fileConfig.Model),
 		ProviderBaseURL: strings.TrimRight(strings.TrimSpace(fileConfig.BaseURL), "/"),
 		ProviderAPIKey:  strings.TrimSpace(fileConfig.APIKey),

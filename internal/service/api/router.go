@@ -6,17 +6,10 @@ import (
 	"moonbridge/internal/extension/plugin"
 	"moonbridge/internal/service/runtime"
 	"moonbridge/internal/service/stats"
-	"moonbridge/internal/service/store"
 )
-
-// ConfigStore subset used by the API handlers.
-type ConfigStore interface {
-	store.ConfigStore
-}
 
 // Router holds dependencies for all API handlers.
 type Router struct {
-	store    store.ConfigStore
 	runtime  *runtime.Runtime
 	stats    *stats.SessionStats
 	registry *plugin.Registry
@@ -40,12 +33,11 @@ type SessionInfo struct {
 }
 
 // NewRouter creates an HTTP handler that serves the /api/v1 endpoints.
-func NewRouter(cfg ConfigStore, rt *runtime.Runtime, st *stats.SessionStats, reg *plugin.Registry, srv interface {
+func NewRouter(rt *runtime.Runtime, st *stats.SessionStats, reg *plugin.Registry, srv interface {
 	ListSessions() []SessionInfo
 	CurrentConfig() ConfigAccessor
 }) http.Handler {
 	r := &Router{
-		store:    cfg,
 		runtime:  rt,
 		stats:    st,
 		registry: reg,
@@ -55,14 +47,14 @@ func NewRouter(cfg ConfigStore, rt *runtime.Runtime, st *stats.SessionStats, reg
 	mux := http.NewServeMux()
 
 	// Auth middleware for all API routes.
-		authMW := AuthMiddleware(func() string {
-			return r.server.CurrentConfig().AuthToken()
-		}, func() bool { return r.store != nil })
+	authMW := AuthMiddleware(func() string {
+		return r.server.CurrentConfig().AuthToken()
+	})
 
-		// Register all routes using Go 1.22+ pattern matching.
-		registerRoutes(mux, r)
+	// Register all routes using Go 1.22+ pattern matching.
+	registerRoutes(mux, r)
 
-		return authMW(mux)
+	return authMW(mux)
 }
 
 // registerRoutes registers all API endpoints with the mux.
@@ -99,6 +91,9 @@ func registerRoutes(mux *http.ServeMux, r *Router) {
 	mux.HandleFunc("PUT /defaults", r.handlePutDefaults)
 	mux.HandleFunc("GET /web-search", r.handleGetWebSearch)
 	mux.HandleFunc("PUT /web-search", r.handlePutWebSearch)
+	mux.HandleFunc("GET /capabilities", r.handleGetCapabilities)
+	mux.HandleFunc("PUT /capabilities/proxy/response", r.handlePutResponseProxyEnabled)
+	mux.HandleFunc("PUT /capabilities/proxy/anthropic", r.handlePutAnthropicProxyEnabled)
 	mux.HandleFunc("GET /extensions", r.handleListExtensions)
 	mux.HandleFunc("GET /extensions/{name}", r.handleGetExtension)
 	mux.HandleFunc("PUT /extensions/{name}", r.handlePutExtension)
@@ -108,13 +103,6 @@ func registerRoutes(mux *http.ServeMux, r *Router) {
 	mux.HandleFunc("GET /config/export", r.handleGetConfigExport)
 	mux.HandleFunc("POST /config/import", r.handlePostConfigImport)
 	mux.HandleFunc("POST /config/validate", r.handlePostConfigValidate)
-
-	// Changes endpoints
-	mux.HandleFunc("GET /changes", r.handleListChanges)
-	mux.HandleFunc("POST /changes/apply", r.handlePostChangesApply)
-	mux.HandleFunc("POST /changes/discard", r.handlePostChangesDiscard)
-	mux.HandleFunc("POST /changes/{id}/apply", r.handlePostChangeApply)
-	mux.HandleFunc("POST /changes/{id}/discard", r.handlePostChangeDiscard)
 
 	// Status / Stats / Logs / Version
 	mux.HandleFunc("GET /status", r.handleGetStatus)

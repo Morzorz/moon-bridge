@@ -42,19 +42,18 @@ func WelcomeMessage() string {
 }
 
 func RunServer(ctx context.Context, cfg config.Config, errors io.Writer) error {
-	switch cfg.Mode {
-	case config.ModeTransform:
-		slog.Info("启动服务器", "mode", cfg.Mode, "addr", cfg.Addr)
-		return runTransform(ctx, cfg, errors)
-	case config.ModeCaptureResponse:
-		slog.Info("启动服务器", "mode", cfg.Mode, "addr", cfg.Addr)
-		return runCaptureResponse(ctx, cfg, errors)
-	case config.ModeCaptureAnthropic:
-		slog.Info("启动服务器", "mode", cfg.Mode, "addr", cfg.Addr)
-		return runCaptureAnthropic(ctx, cfg, errors)
-	default:
-		return fmt.Errorf("unsupported mode %q", cfg.Mode)
+	// Backward compatibility: legacy mode values auto-enable proxy capabilities
+	if cfg.Mode == config.ModeCaptureResponse && !cfg.ResponseProxy.Enabled && cfg.ResponseProxy.ProviderBaseURL != "" {
+		cfg.ResponseProxy.Enabled = true
+		slog.Info("自动启用 OpenAI 代理（来自旧 mode=CaptureResponse 配置）")
 	}
+	if cfg.Mode == config.ModeCaptureAnthropic && !cfg.AnthropicProxy.Enabled && cfg.AnthropicProxy.ProviderBaseURL != "" {
+		cfg.AnthropicProxy.Enabled = true
+		slog.Info("自动启用 Anthropic 代理（来自旧 mode=CaptureAnthropic 配置）")
+	}
+
+	slog.Info("启动服务器", "mode", "Unified", "addr", cfg.Addr)
+	return runTransform(ctx, cfg, errors)
 }
 
 func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) error {
@@ -144,7 +143,10 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 				logger.Info("从持久化存储加载配置",
 					"providers", len(dbCfg.ProviderDefs),
 					"routes", len(dbCfg.Routes))
+				// Preserve the YAML file path so Save() works
+				filePath := cfg.ConfigFilePath
 				cfg = *dbCfg
+				cfg.ConfigFilePath = filePath
 				dbProviderCfg := config.ProviderFromGlobalConfig(&cfg)
 
 				// Rebuild provider manager and pricing from DB-loaded config.
@@ -256,6 +258,44 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 	}
 
 
+	// Optional: create proxy handlers for transparent proxy endpoints.
+	var openaiProxyHandler, anthropicProxyHandler http.Handler
+	if cfg.HasOpenAIProxy() {
+		p, err := proxy.NewResponse(proxy.ResponseConfig{
+			UpstreamBaseURL: cfg.ResponseProxy.ProviderBaseURL,
+			APIKey:          cfg.ResponseProxy.ProviderAPIKey,
+			Tracer:          tracer,
+			TraceErrors:     errors,
+			IsEnabled: func() bool {
+				return rt.Current().Config.HasOpenAIProxy()
+			},
+		})
+		if err != nil {
+			slog.Warn("OpenAI 代理初始化失败，已禁用", "error", err)
+		} else {
+			openaiProxyHandler = p
+			slog.Info("OpenAI 透明代理已就绪", "upstream", cfg.ResponseProxy.ProviderBaseURL)
+		}
+	}
+	if cfg.HasAnthropicProxy() {
+		p, err := proxy.NewAnthropic(proxy.AnthropicConfig{
+			UpstreamBaseURL: cfg.AnthropicProxy.ProviderBaseURL,
+			APIKey:          cfg.AnthropicProxy.ProviderAPIKey,
+			Version:         cfg.AnthropicProxy.ProviderVersion,
+			Tracer:          tracer,
+			TraceErrors:     errors,
+			IsEnabled: func() bool {
+				return rt.Current().Config.HasAnthropicProxy()
+			},
+		})
+		if err != nil {
+			slog.Warn("Anthropic 代理初始化失败，已禁用", "error", err)
+		} else {
+			anthropicProxyHandler = p
+			slog.Info("Anthropic 透明代理已就绪", "upstream", cfg.AnthropicProxy.ProviderBaseURL)
+		}
+	}
+
 	// Create sub-package managers for session, usage, and trace.
 	sessMgr := session.NewInMemoryManager(server.NewSessionConfigAdapter(serverCfg), plugins)
 	usageTrk := usage.NewStatsTracker(sessionStats)
@@ -277,7 +317,8 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 		SessionManager:  sessMgr,
 		UsageTracker:    usageTrk,
 		TraceWriter:     traceWtr,
-		Store:           cs,
+		OpenAIProxyHandler:   openaiProxyHandler,
+		AnthropicProxyHandler: anthropicProxyHandler,
 	})
 
 	wrapped := handler

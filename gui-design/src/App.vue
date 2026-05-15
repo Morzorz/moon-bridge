@@ -25,15 +25,16 @@
       <div class="sidebar-footer">
         <span>v{{ version || 'dev' }}</span>
         <span>{{ serverMode || '—' }}</span>
-        <span v-if="isCaptureMode" class="tag tag-warning" style="margin-top:4px;">代理模式 — 管理受限</span>
+
       </div>
 
-      <!-- Capture mode banner -->
-      <div v-if="isCaptureMode" class="card" style="margin: 8px 10px; padding: 10px; background: var(--color-warning-bg); border-color: var(--color-warning);">
-        <div style="font-size:12px; color: var(--color-warning); line-height:1.6;">
-          ⚠️ 服务器运行于 <strong>{{ serverMode }}</strong> 模式<br/>
-          管理 API 不可用，仅仪表盘和日志可用。<br/>
-          <router-link to="/settings" style="font-size:11px;">切换至 Transform 模式</router-link>
+      <!-- Proxy capability status -->
+      <div v-if="capStatus.proxy_openai || capStatus.proxy_anthropic" class="card" style="margin: 8px 10px; padding: 8px 10px; background: var(--color-primary-bg); border-color: var(--color-primary);">
+        <div style="font-size:11px; color: var(--color-primary); line-height:1.6;">
+          🔗 附加通道：
+          <span v-if="capStatus.proxy_openai">OpenAI 代理</span>
+          <span v-if="capStatus.proxy_openai && capStatus.proxy_anthropic"> / </span>
+          <span v-if="capStatus.proxy_anthropic">Anthropic 代理</span>
         </div>
       </div>
     </aside>
@@ -61,36 +62,19 @@
       </div>
     </div>
 
-    <!-- Post-Save Dialog -->
-    <div v-if="postSaveVisible" class="modal-overlay" @click.self="postSaveVisible = false">
-      <div class="modal-content" style="max-width: 420px;">
-        <div style="text-align: center; margin-bottom: 16px;">
-          <div style="font-size: 40px; margin-bottom: 8px;">📋</div>
-          <h2 class="modal-title" style="margin:0;">变更已暂存 ✓</h2>
-        </div>
-        <p style="text-align: center; color: var(--text-secondary); font-size: 14px; line-height: 1.7;">
-          修改已记录，但尚未生效。<br/>
-          需要前往<strong>变更管理</strong>页面统一应用后才会生效。
-        </p>
-        <div class="modal-actions" style="flex-direction: column; gap: 8px; border: none;">
-          <router-link to="/changes" class="btn btn-primary w-full" style="justify-content:center;" @click="postSaveVisible = false">
-            ➜ 前往变更管理并应用
-          </router-link>
-          <button class="btn btn-ghost w-full" @click="postSaveVisible = false">稍后处理</button>
-        </div>
-      </div>
-    </div>
+
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, provide } from 'vue'
 import { useRoute } from 'vue-router'
-import { getStatus } from './api/index.js'
+import { getStatus, getCapabilities } from './api/index.js'
 
 const route = useRoute()
 const version = ref('')
 const serverMode = ref('')
+const capStatus = ref({ proxy_openai: false, proxy_anthropic: false })
 
 const allNavItems = [
   { path: '/',          icon: '📊', label: '仪表盘', mgmt: false },
@@ -99,20 +83,12 @@ const allNavItems = [
   { path: '/routes',    icon: '🔀', label: '路由管理', mgmt: true },
   { path: '/settings',  icon: '⚙️', label: '设置', mgmt: true },
   { path: '/config',    icon: '📄', label: '配置管理', mgmt: true },
-  { path: '/changes',   icon: '🔄', label: '变更管理', mgmt: true },
   { path: '/sessions',  icon: '💬', label: '会话', mgmt: true },
   { path: '/stats',     icon: '📈', label: '统计分析', mgmt: true },
   { path: '/logs',      icon: '📋', label: '日志', mgmt: false },
 ]
 
-const isCaptureMode = computed(() => serverMode.value === 'CaptureResponse' || serverMode.value === 'CaptureAnthropic')
-const navItems = computed(() => {
-  // Capture 模式下只显示基础页面（仪表盘 + 日志）
-  if (isCaptureMode.value) {
-    return allNavItems.filter(n => !n.mgmt)
-  }
-  return allNavItems
-})
+const navItems = allNavItems  // 能力开关架构下始终显示全部导航
 
 const pageTitle = computed(() => route.meta?.title || 'Moon Bridge')
 const pageSubtitle = computed(() => {
@@ -143,22 +119,15 @@ function showToast(message, type = 'info', duration = 3500) {
   }, duration)
 }
 
-// ===== Post-Save Dialog =====
-const postSaveVisible = ref(false)
-function showPostSave() {
-  postSaveVisible.value = true
-}
-
 provide('showToast', showToast)
-provide('showPostSave', showPostSave)
 provide('serverMode', serverMode)
-provide('isCaptureMode', isCaptureMode)
 
 onMounted(async () => {
   try {
-    const st = await getStatus()
+    const [st, caps] = await Promise.all([getStatus(), getCapabilities()])
     version.value = st.version
     serverMode.value = st.mode
+    capStatus.value = caps
   } catch {
     version.value = '?'
     serverMode.value = 'offline'

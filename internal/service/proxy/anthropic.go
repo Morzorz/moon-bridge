@@ -16,6 +16,8 @@ type AnthropicConfig struct {
 	Client          *http.Client
 	Tracer          *mbtrace.Tracer
 	TraceErrors     io.Writer
+	// IsEnabled is called on each request; if nil or returns false, returns 404.
+	IsEnabled func() bool
 }
 
 type AnthropicServer struct {
@@ -25,6 +27,7 @@ type AnthropicServer struct {
 	client          *http.Client
 	tracer          *mbtrace.Tracer
 	traceErrors     io.Writer
+	isEnabled       func() bool
 }
 
 func NewAnthropic(cfg AnthropicConfig) (*AnthropicServer, error) {
@@ -43,10 +46,15 @@ func NewAnthropic(cfg AnthropicConfig) (*AnthropicServer, error) {
 		client:          client,
 		tracer:          cfg.Tracer,
 		traceErrors:     cfg.TraceErrors,
+		isEnabled:       cfg.IsEnabled,
 	}, nil
 }
 
 func (server *AnthropicServer) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if server.isEnabled != nil && !server.isEnabled() {
+		http.Error(writer, "Anthropic 代理未启用", http.StatusNotFound)
+		return
+	}
 	server.serveProxy(writer, request)
 }
 

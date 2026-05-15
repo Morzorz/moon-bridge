@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -9,6 +10,23 @@ import (
 
 	"moonbridge/internal/config"
 )
+
+// modifyConfig loads the current config, applies a modification function,
+// validates, saves to file, and reloads the runtime.
+func (r *Router) modifyConfig(modify func(*config.Config) error) error {
+	snap := r.runtime.Current()
+	cfg := snap.Config // value copy
+	if err := modify(&cfg); err != nil {
+		return fmt.Errorf("modify: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+	if err := cfg.Save(); err != nil {
+		return fmt.Errorf("save: %w", err)
+	}
+	return r.runtime.Reload(cfg)
+}
 
 // ---- JSON response helpers ----
 
@@ -63,13 +81,9 @@ type paginatedResponse struct {
 // (allowing it to change dynamically via runtime).
 // The storeAvailable function, when non-nil, is called per-request to verify
 // the store is available; if it returns false, a 503 is returned.
-func AuthMiddleware(tokenProvider func() string, storeAvailable func() bool) func(http.Handler) http.Handler {
+func AuthMiddleware(tokenProvider func() string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if storeAvailable != nil && !storeAvailable() {
-				respondError(w, http.StatusServiceUnavailable, "store_unavailable", "配置存储不可用")
-				return
-			}
 			token := tokenProvider()
 			if token != "" {
 				auth := r.Header.Get("Authorization")

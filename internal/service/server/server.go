@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,8 +19,6 @@ import (
 	"moonbridge/internal/service/provider"
 	"moonbridge/internal/service/runtime"
 	"moonbridge/internal/service/stats"
-	"moonbridge/internal/service/store"
-
 	"moonbridge/internal/service/server/session"
 	"moonbridge/internal/service/server/trace"
 	"moonbridge/internal/service/server/usage"
@@ -45,10 +44,11 @@ type Config struct {
 	PluginRegistry    *plugin.Registry
 	AppConfig         config.ServerConfig
 	Runtime           *runtime.Runtime
-	Store             store.ConfigStore
 	SessionManager    session.Manager
 	UsageTracker      usage.Tracker
 	TraceWriter       trace.Writer
+	OpenAIProxyHandler   http.Handler
+	AnthropicProxyHandler http.Handler
 }
 
 type Server struct {
@@ -70,7 +70,6 @@ type Server struct {
 	appConfig         config.ServerConfig
 	serverCfg         config.ServerConfig
 	runtime           *runtime.Runtime
-	store             store.ConfigStore
 	sessionManager    session.Manager
 	usageTracker      usage.Tracker
 	traceWriter       trace.Writer
@@ -97,7 +96,6 @@ func New(cfg Config) *Server {
 	chatClients:      cfg.ChatClients,
 		googleClients:    cfg.GoogleClients,
 		runtime:          cfg.Runtime,
-		store:            cfg.Store,
 		sessionManager:   cfg.SessionManager,
 		usageTracker:     cfg.UsageTracker,
 		traceWriter:      cfg.TraceWriter,
@@ -108,8 +106,20 @@ func New(cfg Config) *Server {
 	s.mux.HandleFunc("/models", s.handleModels)
 	go s.startSessionPruning()
 	s.registerPluginRoutes()
-	if cfg.Runtime != nil && cfg.Store != nil {
-		apiRouter := api.NewRouter(s.store, s.runtime, s.stats, s.pluginRegistry, s)
+
+	// Optional: transparent proxy endpoints
+	if cfg.OpenAIProxyHandler != nil {
+		s.mux.Handle("/v1/openai/responses", cfg.OpenAIProxyHandler)
+		slog.Info("OpenAI 透明代理已启用", "path", "/v1/openai/responses")
+	}
+	if cfg.AnthropicProxyHandler != nil {
+		s.mux.Handle("/v1/anthropic/messages", cfg.AnthropicProxyHandler)
+		s.mux.Handle("/anthropic/v1/messages", cfg.AnthropicProxyHandler)
+		slog.Info("Anthropic 透明代理已启用", "path", "/v1/anthropic/messages")
+	}
+
+	if cfg.Runtime != nil {
+		apiRouter := api.NewRouter(s.runtime, s.stats, s.pluginRegistry, s)
 		s.mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiRouter))
 	}
 	return s

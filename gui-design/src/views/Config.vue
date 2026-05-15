@@ -85,11 +85,10 @@
 
 <script setup>
 import { ref, onMounted, inject } from 'vue'
-import { getStatus, getConfigEffective, exportConfigRaw, importConfig, validateConfig } from '../api/index.js'
-import { usePostSave } from '../composables/useToast.js'
+import { getStatus, exportConfigRaw, importConfig, validateConfig } from '../api/index.js'
+
 
 const showToast = inject('showToast')
-const showPostSave = usePostSave()
 
 const configInfo = ref({})
 const yamlContent = ref('')
@@ -102,8 +101,9 @@ const importing = ref(false)
 
 async function loadEffective() {
   try {
-    const data = await getConfigEffective()
-    yamlContent.value = JSON.stringify(data, null, 2)
+    const yaml = await exportConfigRaw()
+    yamlContent.value = yaml
+    mode.value = 'view'
   } catch (e) {
     showToast(`加载配置失败: ${e.message}`, 'error')
   }
@@ -135,8 +135,7 @@ async function confirmImport() {
   importing.value = true
   try {
     const res = await importConfig(yamlContent.value)
-    showPostSave()
-    showToast('配置已暂存为待处理变更', 'success')
+    showToast('配置已导入并生效', 'success')
     showImportConfirm.value = false
   } catch (e) {
     showToast(`导入失败: ${e.message}`, 'error')

@@ -57,6 +57,38 @@
         </div>
       </div>
 
+      <!-- Capability status -->
+      <div class="card-grid card-grid-3 mb-4">
+        <div class="card">
+          <div class="card-header"><span class="card-title">🔀 协议转换</span></div>
+          <div class="flex items-center gap-2" style="padding: 8px 0;">
+            <span class="status-dot online"></span>
+            <span class="text-primary" style="color:var(--text-primary); font-weight:600;">已启用</span>
+          </div>
+          <div class="text-secondary" style="font-size:12px;">/v1/responses</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">🔗 OpenAI 代理</span></div>
+          <div class="flex items-center gap-2" style="padding: 8px 0;">
+            <span class="status-dot" :class="capState.proxy_openai ? 'online' : 'offline'"></span>
+            <span :style="{fontWeight:600, color: capState.proxy_openai ? 'var(--color-success)' : 'var(--text-muted)'}">
+              {{ capState.proxy_openai ? '已启用' : '已禁用' }}
+            </span>
+          </div>
+          <div class="text-secondary" style="font-size:12px;">/v1/openai/responses</div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">🔗 Anthropic 代理</span></div>
+          <div class="flex items-center gap-2" style="padding: 8px 0;">
+            <span class="status-dot" :class="capState.proxy_anthropic ? 'online' : 'offline'"></span>
+            <span :style="{fontWeight:600, color: capState.proxy_anthropic ? 'var(--color-success)' : 'var(--text-muted)'}">
+              {{ capState.proxy_anthropic ? '已启用' : '已禁用' }}
+            </span>
+          </div>
+          <div class="text-secondary" style="font-size:12px;">/v1/anthropic/messages</div>
+        </div>
+      </div>
+
       <!-- Bottom two columns -->
       <div class="card-grid card-grid-2">
         <!-- Provider health -->
@@ -110,7 +142,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, inject } from 'vue'
 import {
-  getStatus, getStatsSummary, getStatusProviders, getSessions,
+  getStatus, getStatsSummary, getStatusProviders, getSessions, getCapabilities,
 } from '../api/index.js'
 
 const showToast = inject('showToast')
@@ -121,6 +153,7 @@ const status = ref({ mode: '—', provider_count: 0, route_count: 0, addr: '—'
 const summary = ref({})
 const providers = ref([])
 const sessions = ref([])
+const capState = ref({ proxy_openai: false, proxy_anthropic: false })
 
 let timer = null
 
@@ -172,14 +205,15 @@ function timeAgo(ts) {
 
 async function fetchData() {
   try {
-    const [st, sm, pr, ss] = await Promise.all([
-      getStatus(), getStatsSummary(), getStatusProviders(), getSessions(),
+    const [st, sm, pr, ss, caps] = await Promise.all([
+      getStatus(), getStatsSummary(), getStatusProviders(), getSessions(), getCapabilities(),
     ])
     status.value = st
     summary.value = sm
     providers.value = pr || []
     sessions.value = ss || []
     healthyCount.value = (pr || []).filter(p => p.health_status === 'healthy' || p.health_status === 'online').length
+    capState.value = caps || { proxy_openai: false, proxy_anthropic: false }
     error.value = null
   } catch (e) {
     error.value = e.message

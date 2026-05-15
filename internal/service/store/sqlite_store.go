@@ -458,6 +458,20 @@ func applySetting(fc *config.FileConfig, key, value string) {
 		if err := json.Unmarshal([]byte(value), &c); err == nil {
 			fc.Cache = c
 		}
+	case "proxy.response.enabled":
+		var m map[string]any
+		if json.Unmarshal([]byte(value), &m) == nil {
+			if v, ok := m["value"].(bool); ok {
+				fc.Proxy.Response.Enabled = v
+			}
+		}
+	case "proxy.anthropic.enabled":
+		var m map[string]any
+		if json.Unmarshal([]byte(value), &m) == nil {
+			if v, ok := m["value"].(bool); ok {
+				fc.Proxy.Anthropic.Enabled = v
+			}
+		}
 	case "persistence":
 		var p config.PersistenceFileConfig
 		if err := json.Unmarshal([]byte(value), &p); err == nil {

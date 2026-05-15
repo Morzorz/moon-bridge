@@ -1,14 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"moonbridge/internal/config"
-	"moonbridge/internal/service/store"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ---- Settings ----
@@ -39,26 +40,20 @@ func (r *Router) handlePutDefaults(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	defaultsJSON, _ := json.Marshal(map[string]any{
-		"model":         body.Model,
-		"max_tokens":    body.MaxTokens,
-		"system_prompt": body.SystemPrompt,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "update",
-		Resource:  "setting",
-		TargetKey: "defaults",
-		After:     string(defaultsJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.Defaults.Model = body.Model
+		cfg.Defaults.MaxTokens = body.MaxTokens
+		cfg.Defaults.SystemPrompt = body.SystemPrompt
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "默认参数已保存并生效",
 	})
 }
 
@@ -86,23 +81,76 @@ func (r *Router) handlePutMode(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// 使用 JSON-wrapped scalar 格式存储
-	modeJSON, _ := json.Marshal(map[string]string{"value": body.Mode})
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "update",
-		Resource:  "setting",
-		TargetKey: "mode",
-		After:     string(modeJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.Mode = config.Mode(body.Mode)
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 mode 变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id":  chID,
-		"status":     "pending",
-		"message":    "Mode 变更已暂存，需应用后才生效。注意：mode 变更需要重启服务器才能完全切换。",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "模式已切换（需重启服务器完全生效）",
+	})
+}
+
+// ---- Capabilities ----
+
+// GET /capabilities
+func (r *Router) handleGetCapabilities(w http.ResponseWriter, req *http.Request) {
+	cfg := r.runtime.Current()
+	respondJSON(w, http.StatusOK, map[string]any{
+		"transform":       true,
+		"proxy_openai":    cfg.Config.HasOpenAIProxy(),
+		"proxy_anthropic": cfg.Config.HasAnthropicProxy(),
+	})
+}
+
+// PUT /capabilities/proxy/response
+func (r *Router) handlePutResponseProxyEnabled(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_json", "无效的 JSON 请求体")
+		return
+	}
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.ResponseProxy.Enabled = body.Enabled
+		return nil
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "代理开关已更改",
+	})
+}
+
+// PUT /capabilities/proxy/anthropic
+func (r *Router) handlePutAnthropicProxyEnabled(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_json", "无效的 JSON 请求体")
+		return
+	}
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.AnthropicProxy.Enabled = body.Enabled
+		return nil
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "代理开关已更改",
 	})
 }
 
@@ -147,28 +195,22 @@ func (r *Router) handlePutWebSearch(w http.ResponseWriter, req *http.Request) {
 		firecrawlKey = cfg.Config.FirecrawlAPIKey
 	}
 
-	wsJSON, _ := json.Marshal(map[string]any{
-		"support":            body.Support,
-		"max_uses":           body.MaxUses,
-		"tavily_api_key":     tavilyKey,
-		"firecrawl_api_key":  firecrawlKey,
-		"search_max_rounds":  body.SearchMaxRounds,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "update",
-		Resource:  "setting",
-		TargetKey: "web_search",
-		After:     string(wsJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.WebSearchSupport = config.WebSearchSupport(body.Support)
+		cfg.WebSearchMaxUses = body.MaxUses
+		cfg.TavilyAPIKey = tavilyKey
+		cfg.FirecrawlAPIKey = firecrawlKey
+		cfg.SearchMaxRounds = body.SearchMaxRounds
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Web Search 配置已保存并生效",
 	})
 }
 
@@ -219,23 +261,7 @@ func (r *Router) handlePutExtension(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	extJSON, _ := json.Marshal(body)
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "update",
-		Resource:  "setting",
-		TargetKey: "extensions",
-		After:     `{"` + name + `":` + string(extJSON) + `}`,
-	})
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
-	})
+	respondError(w, http.StatusNotImplemented, "not_supported", "Extension 配置请在 config.yml 中编辑")
 }
 
 // ---- Config ----
@@ -250,23 +276,20 @@ func (r *Router) handleGetConfigEffective(w http.ResponseWriter, req *http.Reque
 
 // GET /config/export
 func (r *Router) handleGetConfigExport(w http.ResponseWriter, req *http.Request) {
-	includeSecrets := req.URL.Query().Get("include_secrets") == "true"
-
-	// Require explicit X-Confirm-Secrets header for plaintext secret export.
-	if includeSecrets && req.Header.Get("X-Confirm-Secrets") != "true" {
-		respondError(w, http.StatusBadRequest, "confirmation_required", "导出包含 secrets 需要设置 X-Confirm-Secrets: true header")
+	cfg := r.runtime.Current()
+	fc := cfg.Config.ToFileConfig()
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(fc); err != nil {
+		respondError(w, http.StatusInternalServerError, "export_error", fmt.Sprintf("序列化失败: %v", err))
 		return
 	}
-
-	yamlBytes, err := r.store.ExportYAML(includeSecrets)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "export_error", fmt.Sprintf("导出失败: %v", err))
-		return
-	}
+	enc.Close()
 
 	w.Header().Set("Content-Type", "application/x-yaml")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=moonbridge-config-%s.yml", time.Now().Format("20060102-150405")))
-	w.Write(yamlBytes)
+	w.Write(buf.Bytes())
 }
 
 // POST /config/import
@@ -283,207 +306,28 @@ func (r *Router) handlePostConfigImport(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	// Parse the YAML via LoadFromYAML which validates and returns a full Config.
+	// Parse, validate, save directly, and reload.
 	cfg, err := config.LoadFromYAML([]byte(body.YAML))
 	if err != nil {
 		respondError(w, http.StatusBadRequest, "parse_error", fmt.Sprintf("YAML 解析失败: %v", err))
 		return
 	}
-
-	// Create pending changes from the parsed config so that POST /changes/apply can apply them.
-	var changes []map[string]any
-
-	for key, def := range cfg.ProviderDefs {
-		afterJSON, _ := json.Marshal(map[string]any{
-			"base_url":   def.BaseURL,
-			"api_key":    def.APIKey,
-			"version":    def.Version,
-			"protocol":   def.Protocol,
-			"user_agent": def.UserAgent,
-		})
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "create",
-			Resource:  "provider",
-			TargetKey: key,
-			After:     string(afterJSON),
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 provider %q 失败: %v", key, err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "provider",
-			"target":    key,
-		})
-
-		// Stage offers for each provider.
-		for _, offer := range def.Offers {
-			offerJSON, _ := json.Marshal(map[string]any{
-				"provider_key":  key,
-				"model_slug":    offer.Model,
-				"upstream_name": offer.UpstreamName,
-				"priority":      offer.Priority,
-				"input_price":   offer.Pricing.InputPrice,
-				"output_price":  offer.Pricing.OutputPrice,
-				"cache_write":   offer.Pricing.CacheWritePrice,
-				"cache_read":    offer.Pricing.CacheReadPrice,
-			})
-			chID, err := r.store.StageChange(store.ChangeRow{
-				Action:    "create",
-				Resource:  "offer",
-				TargetKey: key + "/" + offer.Model,
-				After:     string(offerJSON),
-			})
-			if err != nil {
-				respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 offer %q 失败: %v", key+"/"+offer.Model, err))
-				return
-			}
-			changes = append(changes, map[string]any{
-				"change_id": chID,
-				"resource":  "offer",
-				"target":    key + "/" + offer.Model,
-			})
-		}
+	if err := cfg.Validate(); err != nil {
+		respondError(w, http.StatusBadRequest, "validation_error", fmt.Sprintf("配置校验失败: %v", err))
+		return
 	}
-
-	for slug, def := range cfg.Models {
-		meta := map[string]any{
-			"display_name":       def.DisplayName,
-			"description":        def.Description,
-			"context_window":     def.ContextWindow,
-			"max_output_tokens":  def.MaxOutputTokens,
-		}
-		metaJSON, _ := json.Marshal(meta)
-		afterJSON, _ := json.Marshal(map[string]any{
-			"metadata": string(metaJSON),
-		})
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "create",
-			Resource:  "model",
-			TargetKey: slug,
-			After:     string(afterJSON),
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 model %q 失败: %v", slug, err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "model",
-			"target":    slug,
-		})
+	if err := cfg.Save(); err != nil {
+		respondError(w, http.StatusInternalServerError, "save_error", fmt.Sprintf("保存失败: %v", err))
+		return
 	}
-
-	for alias, route := range cfg.Routes {
-		afterJSON, _ := json.Marshal(map[string]any{
-			"model_slug":     route.Model,
-			"provider_key":   route.Provider,
-			"display_name":   route.DisplayName,
-			"context_window": route.ContextWindow,
-		})
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "create",
-			Resource:  "route",
-			TargetKey: alias,
-			After:     string(afterJSON),
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 route %q 失败: %v", alias, err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "route",
-			"target":    alias,
-		})
-	}
-
-	// Stage defaults if set.
-	if cfg.Defaults.Model != "" || cfg.Defaults.MaxTokens > 0 || cfg.Defaults.SystemPrompt != "" {
-		defaultsJSON, _ := json.Marshal(map[string]any{
-			"model":         cfg.Defaults.Model,
-			"max_tokens":    cfg.Defaults.MaxTokens,
-			"system_prompt": cfg.Defaults.SystemPrompt,
-		})
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "update",
-			Resource:  "setting",
-			TargetKey: "defaults",
-			After:     string(defaultsJSON),
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 defaults 失败: %v", err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "setting",
-			"target":    "defaults",
-		})
-	}
-
-	// Stage web_search if set.
-	if cfg.WebSearchSupport != "" || cfg.TavilyAPIKey != "" || cfg.FirecrawlAPIKey != "" {
-		wsJSON, _ := json.Marshal(map[string]any{
-			"support":            string(cfg.WebSearchSupport),
-			"max_uses":           cfg.WebSearchMaxUses,
-			"tavily_api_key":     cfg.TavilyAPIKey,
-			"firecrawl_api_key":  cfg.FirecrawlAPIKey,
-			"search_max_rounds":  cfg.SearchMaxRounds,
-		})
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "update",
-			Resource:  "setting",
-			TargetKey: "web_search",
-			After:     string(wsJSON),
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 web_search 失败: %v", err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "setting",
-			"target":    "web_search",
-		})
-	}
-
-	// Stage base server settings (mode, addr, etc.) so LoadAll can reconstruct config.
-	baseJSON := func(v any) string { b, _ := json.Marshal(v); return string(b) }
-	baseScalar := func(v string) string { return baseJSON(map[string]string{"value": v}) }
-	baseSettings := map[string]string{
-		"mode":           baseScalar(string(cfg.Mode)),
-		"addr":           baseScalar(cfg.Addr),
-		"auth_token":     baseScalar(cfg.AuthToken),
-		"log_level":      baseScalar(cfg.LogLevel),
-		"log_format":     baseScalar(cfg.LogFormat),
-		"trace_requests": baseJSON(cfg.TraceRequests),
-		"cache":          baseJSON(cfg.Cache),
-		"persistence":    baseJSON(cfg.Persistence),
-	}
-	for key, after := range baseSettings {
-		chID, err := r.store.StageChange(store.ChangeRow{
-			Action:    "update",
-			Resource:  "setting",
-			TargetKey: key,
-			After:     after,
-		})
-		if err != nil {
-			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存基础设置 %q 失败: %v", key, err))
-			return
-		}
-		changes = append(changes, map[string]any{
-			"change_id": chID,
-			"resource":  "setting",
-			"target":    key,
-		})
+	if err := r.runtime.Reload(cfg); err != nil {
+		respondError(w, http.StatusInternalServerError, "reload_error", fmt.Sprintf("重载失败: %v", err))
+		return
 	}
 
 	respondJSON(w, http.StatusOK, map[string]any{
-		"changes": changes,
-		"count":   len(changes),
-		"message": fmt.Sprintf("配置已通过校验，已创建 %d 个待应用变更，请调用 POST /changes/apply 使其生效", len(changes)),
+		"status":  "success",
+		"message": "配置已导入并生效",
 	})
 }
 
@@ -518,89 +362,5 @@ func (r *Router) handlePostConfigValidate(w http.ResponseWriter, req *http.Reque
 // ---- Changes ----
 
 // GET /changes
-func (r *Router) handleListChanges(w http.ResponseWriter, req *http.Request) {
-	if r.store == nil {
-		respondJSON(w, http.StatusOK, []store.ChangeRow{})
-		return
-	}
-	changes, err := r.store.ListPendingChanges()
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "list_error", fmt.Sprintf("查询变更列表失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusOK, changes)
-}
-
-// POST /changes/apply
-func (r *Router) handlePostChangesApply(w http.ResponseWriter, req *http.Request) {
-	// Wrap runtime.Reload to convert *config.Config to config.Config.
-	err := r.store.ApplyPendingChanges(req.Context(), func(cfg *config.Config) error {
-		return r.runtime.Reload(*cfg)
-	})
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("应用变更失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"status":  "success",
-		"message": "变更已应用生效",
-	})
-}
-
-// POST /changes/discard
-func (r *Router) handlePostChangesDiscard(w http.ResponseWriter, req *http.Request) {
-	if err := r.store.DiscardPendingChanges(); err != nil {
-		respondError(w, http.StatusInternalServerError, "discard_error", fmt.Sprintf("丢弃变更失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"status":  "success",
-		"message": "变更已丢弃",
-	})
-}
-
-// POST /changes/{id}/apply
-func (r *Router) handlePostChangeApply(w http.ResponseWriter, req *http.Request) {
-	idStr := req.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid_id", "无效的变更 ID")
-		return
-	}
-
-	err = r.store.ApplyChange(req.Context(), id, func(cfg *config.Config) error {
-		return r.runtime.Reload(*cfg)
-	})
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("应用变更失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"status":  "success",
-		"message": "变更已应用生效",
-	})
-}
-
-// POST /changes/{id}/discard
-func (r *Router) handlePostChangeDiscard(w http.ResponseWriter, req *http.Request) {
-	idStr := req.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		respondError(w, http.StatusBadRequest, "invalid_id", "无效的变更 ID")
-		return
-	}
-
-	if err := r.store.DiscardChange(id); err != nil {
-		respondError(w, http.StatusInternalServerError, "discard_error", fmt.Sprintf("丢弃变更失败: %v", err))
-		return
-	}
-
-	respondJSON(w, http.StatusOK, map[string]any{
-		"status":  "success",
-		"message": "变更已丢弃",
-	})
-}
+// Changes API endpoints are removed. Config changes now take effect immediately.
+// See individual PUT handlers for direct config.yml modification.

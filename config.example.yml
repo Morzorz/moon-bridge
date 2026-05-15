@@ -94,10 +94,12 @@ trace:
   enabled: false
 proxy:
   response:
+    enabled: false
     base_url: "https://api.openai.com"
     api_key: "replace-with-real-openai-responses-api-key"
     model: "gpt-5.4"
   anthropic:
+    enabled: false
     base_url: "https://provider.example.com"
     api_key: "replace-with-real-anthropic-compatible-api-key"
     version: "2023-06-01"

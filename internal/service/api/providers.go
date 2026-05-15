@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"moonbridge/internal/config"
 	"moonbridge/internal/protocol/anthropic"
-	"moonbridge/internal/service/store"
 )
 
 // ---- Providers ----
@@ -149,29 +149,24 @@ func (r *Router) handlePutProvider(w http.ResponseWriter, req *http.Request) {
 		body.Protocol = "anthropic"
 	}
 
-	afterJSON, _ := json.Marshal(map[string]any{
-		"base_url":   body.BaseURL,
-		"api_key":    body.APIKey,
-		"version":    body.Version,
-		"protocol":   body.Protocol,
-		"user_agent": body.UserAgent,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "create",
-		Resource:  "provider",
-		TargetKey: key,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.ProviderDefs[key] = config.ProviderDef{
+			BaseURL:   body.BaseURL,
+			APIKey:    body.APIKey,
+			Version:   body.Version,
+			Protocol:  body.Protocol,
+			UserAgent: body.UserAgent,
+		}
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
-		"message":   "变更已暂存，请调用 POST /changes/apply 使其生效",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Provider 已保存并生效",
 	})
 }
 
@@ -224,34 +219,24 @@ func (r *Router) handlePatchProvider(w http.ResponseWriter, req *http.Request) {
 		userAgent = def.UserAgent
 	}
 
-	action := "update"
-	if !exists {
-		action = "create"
-	}
-
-	afterJSON, _ := json.Marshal(map[string]any{
-		"base_url":   baseURL,
-		"api_key":    apiKey,
-		"version":    version,
-		"protocol":   protocol,
-		"user_agent": userAgent,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    action,
-		Resource:  "provider",
-		TargetKey: key,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.ProviderDefs[key] = config.ProviderDef{
+			BaseURL:   baseURL,
+			APIKey:    apiKey,
+			Version:   version,
+			Protocol:  protocol,
+			UserAgent: userAgent,
+		}
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
-		"message":   "变更已暂存，请调用 POST /changes/apply 使其生效",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Provider 已保存并生效",
 	})
 }
 
@@ -269,20 +254,18 @@ func (r *Router) handleDeleteProvider(w http.ResponseWriter, req *http.Request) 
 		return
 	}
 
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "delete",
-		Resource:  "provider",
-		TargetKey: key,
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		delete(cfg.ProviderDefs, key)
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存删除失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("删除失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
-		"message":   "删除已暂存，请调用 POST /changes/apply 使其生效",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Provider 已删除并生效",
 	})
 }
 

@@ -14,57 +14,59 @@
       </button>
     </div>
 
-    <!-- Tab: Mode -->
-    <div v-if="activeTab === 'mode'" class="card" style="max-width: 600px;">
-      <div class="section-title">服务器工作模式</div>
-      <p class="text-secondary" style="font-size: 13px; margin-bottom: 16px;">
-        当前模式：<span class="tag tag-primary">{{ currentMode }}</span>
+    <!-- Tab: Capabilities -->
+    <div v-if="activeTab === 'capabilities'" class="card" style="max-width: 600px;">
+      <div class="section-title">服务器能力开关</div>
+      <p class="text-secondary" style="font-size:13px; margin-bottom:20px;">
+        控制服务器对外提供的 API 通道。开关变更需通过变更管理应用后重启生效。
       </p>
 
-      <div class="form-group">
-        <label class="form-label">切换模式</label>
-        <select class="form-select" v-model="modeForm.mode" @change="modeChanged = true">
-          <option value="Transform">Transform — 协议转换 + 模型路由（完整功能）</option>
-          <option value="CaptureResponse">CaptureResponse — OpenAI Responses 透明代理</option>
-          <option value="CaptureAnthropic">CaptureAnthropic — Anthropic Messages 透明代理</option>
-        </select>
-      </div>
-
-      <!-- Mode description card -->
-      <div class="card mt-4" style="background: var(--bg-primary);">
-        <div style="font-size: 13px; line-height: 1.8;">
-          <div v-if="modeForm.mode === 'Transform'" style="color: var(--color-primary);">
-            <strong>Transform 模式</strong><br/>
-            接收 OpenAI Responses 格式请求<br/>
-            按路由定义自动转换协议并发往上游 Provider<br/>
-            完整支持：管理 API、Provider/模型/路由管理、协议转换、Web Search、扩展<br/>
-            这是功能最完整的模式。
-          </div>
-          <div v-if="modeForm.mode === 'CaptureResponse'" style="color: var(--color-warning);">
-            <strong>CaptureResponse 模式</strong><br/>
-            OpenAI Responses 透明代理，不做任何协议转换<br/>
-            管理 API 不可用，只能通过 config.yml 配置<br/>
-            切换后需重启服务器生效。
-          </div>
-          <div v-if="modeForm.mode === 'CaptureAnthropic'" style="color: var(--color-warning);">
-            <strong>CaptureAnthropic 模式</strong><br/>
-            Anthropic Messages 透明代理，不做任何协议转换<br/>
-            管理 API 不可用，只能通过 config.yml 配置<br/>
-            切换后需重启服务器生效。
-          </div>
+      <!-- Transform (always on) -->
+      <div class="flex items-center justify-between mb-4" style="padding:14px; background:var(--bg-primary); border-radius:var(--border-radius-sm); border:1px solid var(--border-color);">
+        <div>
+          <strong>🔀 协议转换引擎</strong>
+          <div class="text-secondary" style="font-size:12px; margin-top:2px;">/v1/responses — 路由 + 协议转换</div>
         </div>
+        <span class="tag tag-primary" style="font-size:12px;">始终启用</span>
       </div>
 
-      <div v-if="modeChanged && modeForm.mode !== currentMode" class="card mt-4" style="border-color: var(--color-warning); background: var(--color-warning-bg);">
-        <p style="font-size: 13px; color: var(--color-warning);">
-          ⚠️ 模式切换需要<strong>重启服务器</strong>才能完全生效。<br/>
-          变更会暂存到数据库，应用后在下一次启动时生效。
-        </p>
+      <!-- OpenAI Proxy -->
+      <div class="flex items-center justify-between mb-4" style="padding:14px; background:var(--bg-primary); border-radius:var(--border-radius-sm); border:1px solid var(--border-color);">
+        <div>
+          <strong>🔗 OpenAI 透明代理</strong>
+          <div class="text-secondary" style="font-size:12px; margin-top:2px;">/v1/openai/responses — 透传至 OpenAI</div>
+        </div>
+        <label class="toggle" style="position:relative; display:inline-block; width:44px; height:24px;">
+          <input type="checkbox" v-model="capsForm.proxy_openai" @change="saveCap('proxy_openai')" style="opacity:0; width:0; height:0;" />
+          <span style="position:absolute; cursor:pointer; inset:0; background:var(--bg-hover); border-radius:24px; transition:0.3s; border:1px solid var(--border-color);"
+            :style="capsForm.proxy_openai ? {background:'var(--color-success)', borderColor:'var(--color-success)'} : {}"
+          >
+            <span style="position:absolute; content:''; height:18px; width:18px; left:2px; bottom:2px; background:white; border-radius:50%; transition:0.3s;"
+              :style="capsForm.proxy_openai ? {transform:'translateX(20px)'} : {}"
+            ></span>
+          </span>
+        </label>
       </div>
 
-      <button class="btn btn-primary mt-4" @click="saveMode" :disabled="savingMode || modeForm.mode === currentMode">
-        {{ savingMode ? '保存中...' : '保存并暂存变更' }}
-      </button>
+      <!-- Anthropic Proxy -->
+      <div class="flex items-center justify-between mb-4" style="padding:14px; background:var(--bg-primary); border-radius:var(--border-radius-sm); border:1px solid var(--border-color);">
+        <div>
+          <strong>🔗 Anthropic 透明代理</strong>
+          <div class="text-secondary" style="font-size:12px; margin-top:2px;">/v1/anthropic/messages — 透传至 Anthropic</div>
+        </div>
+        <label class="toggle" style="position:relative; display:inline-block; width:44px; height:24px;">
+          <input type="checkbox" v-model="capsForm.proxy_anthropic" @change="saveCap('proxy_anthropic')" style="opacity:0; width:0; height:0;" />
+          <span style="position:absolute; cursor:pointer; inset:0; background:var(--bg-hover); border-radius:24px; transition:0.3s; border:1px solid var(--border-color);"
+            :style="capsForm.proxy_anthropic ? {background:'var(--color-success)', borderColor:'var(--color-success)'} : {}"
+          >
+            <span style="position:absolute; content:''; height:18px; width:18px; left:2px; bottom:2px; background:white; border-radius:50%; transition:0.3s;"
+              :style="capsForm.proxy_anthropic ? {transform:'translateX(20px)'} : {}"
+            ></span>
+          </span>
+        </label>
+      </div>
+
+
     </div>
 
     <!-- Tab: Defaults -->
@@ -151,14 +153,12 @@ import {
   getDefaults, updateDefaults,
   getWebSearch, updateWebSearch,
   listExtensions, getMode, updateMode,
+  getCapabilities, updateResponseProxy, updateAnthropicProxy,
 } from '../api/index.js'
-import { usePostSave } from '../composables/useToast.js'
-
 const showToast = inject('showToast')
-const showPostSave = usePostSave()
 
 const tabs = [
-  { key: 'mode', label: '工作模式' },
+  { key: 'capabilities', label: '能力开关' },
   { key: 'defaults', label: '默认参数' },
   { key: 'websearch', label: 'Web Search' },
   { key: 'extensions', label: '扩展管理' },
@@ -169,6 +169,7 @@ const currentMode = ref('')
 const modeChanged = ref(false)
 const savingMode = ref(false)
 const modeForm = ref({ mode: 'Transform' })
+const capsForm = ref({ proxy_openai: false, proxy_anthropic: false })
 const modelList = ref([])
 const defaultModelOptions = ref([])
 const extensions = ref([])
@@ -183,13 +184,23 @@ const showTavily = ref(false)
 const showFirecrawl = ref(false)
 const savingWeb = ref(false)
 
+async function saveCap(key) {
+  try {
+    const enabled = capsForm.value[key]
+    if (key === 'proxy_openai') await updateResponseProxy(enabled)
+    else await updateAnthropicProxy(enabled)
+    showToast(`能力开关变更已生效`, 'success')
+  } catch (e) {
+    showToast(`保存失败: ${e.message}`, 'error')
+  }
+}
+
 async function saveMode() {
   if (modeForm.value.mode === currentMode.value) return
   savingMode.value = true
   try {
     await updateMode(modeForm.value.mode)
-    showPostSave()
-    showToast(`Mode 变更已暂存: ${modeForm.value.mode}`, 'success')
+    showToast(`Mode 已切换: ${modeForm.value.mode}（需重启完全生效）`, 'success')
     modeChanged.value = false
   } catch (e) {
     showToast(`保存失败: ${e.message}`, 'error')
@@ -205,8 +216,7 @@ async function saveDefaults() {
       system_prompt: defaultsForm.value.system_prompt || undefined,
     }
     await updateDefaults(body)
-    showPostSave()
-    showToast('默认参数已暂存，需在变更管理页应用', 'success')
+    showToast('默认参数已保存并生效', 'success')
   } catch (e) {
     showToast(`保存失败: ${e.message}`, 'error')
   } finally { savingDefaults.value = false }
@@ -222,8 +232,7 @@ async function saveWebSearch() {
       firecrawl_api_key: webForm.value.firecrawl_api_key || undefined,
       search_max_rounds: webForm.value.search_max_rounds || undefined,
     })
-    showPostSave()
-    showToast('Web Search 配置已暂存，需在变更管理页应用', 'success')
+    showToast('Web Search 配置已保存并生效', 'success')
   } catch (e) {
     showToast(`保存失败: ${e.message}`, 'error')
   } finally { savingWeb.value = false }
@@ -235,13 +244,17 @@ function configureExt(ext) {
 
 async function fetchData() {
   try {
-    const [mo, d, w, e, mRes, rRes] = await Promise.all([
-      getMode(), getDefaults(), getWebSearch(), listExtensions(),
+    const [caps, mo, d, w, e, mRes, rRes] = await Promise.all([
+      getCapabilities(), getMode(), getDefaults(), getWebSearch(), listExtensions(),
       import('../api/index.js').then(m => m.listModels({ limit: 100 })),
       import('../api/index.js').then(m => m.listRoutes({ limit: 100 })),
     ])
     currentMode.value = mo.mode
     modeForm.value = { mode: mo.mode }
+    capsForm.value = {
+      proxy_openai: caps.proxy_openai || false,
+      proxy_anthropic: caps.proxy_anthropic || false,
+    }
     defaultsForm.value = { model: d.model || '', max_tokens: d.max_tokens, system_prompt: d.system_prompt || '' }
     webForm.value = {
       support: w.support || 'disabled',

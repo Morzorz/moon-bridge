@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"moonbridge/internal/service/store"
+	"moonbridge/internal/config"
 )
 
 // ---- Routes ----
@@ -109,27 +109,23 @@ func (r *Router) handlePutRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	afterJSON, _ := json.Marshal(map[string]any{
-		"model_slug":     body.Model,
-		"provider_key":   body.Provider,
-		"display_name":   body.DisplayName,
-		"context_window": body.ContextWindow,
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "create",
-		Resource:  "route",
-		TargetKey: alias,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.Routes[alias] = config.RouteEntry{
+			Provider:      body.Provider,
+			Model:         body.Model,
+			DisplayName:   body.DisplayName,
+			ContextWindow: body.ContextWindow,
+		}
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "路由已保存并生效",
 	})
 }
 
@@ -141,24 +137,20 @@ func (r *Router) handleDeleteRoute(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	cfg := r.runtime.Current()
-	if _, ok := cfg.Config.Routes[alias]; !ok {
-		respondError(w, http.StatusNotFound, "not_found", fmt.Sprintf("route %q 不存在", alias))
-		return
-	}
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "delete",
-		Resource:  "route",
-		TargetKey: alias,
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		if _, ok := cfg.Routes[alias]; !ok {
+			return fmt.Errorf("route %q 不存在", alias)
+		}
+		delete(cfg.Routes, alias)
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存删除失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("删除失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "路由已删除并生效",
 	})
 }

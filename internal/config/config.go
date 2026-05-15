@@ -51,6 +51,7 @@ type WebSearchConfig struct {
 }
 
 type Config struct {
+	ConfigFilePath    string `yaml:"-" json:"-"` // set after loading
 	Mode              Mode
 	Addr              string
 	AuthToken         string
@@ -212,16 +213,34 @@ type OfferEntry struct {
 }
 
 type ResponseProxyConfig struct {
+	Enabled         bool   `yaml:"enabled"`
 	Model           string
-	ProviderBaseURL string
-	ProviderAPIKey  string
+	ProviderBaseURL string `yaml:"base_url"`
+	ProviderAPIKey  string `yaml:"api_key"`
 }
 
 type AnthropicProxyConfig struct {
+	Enabled         bool   `yaml:"enabled"`
 	Model           string
-	ProviderBaseURL string
-	ProviderAPIKey  string
-	ProviderVersion string
+	ProviderBaseURL string `yaml:"base_url"`
+	ProviderAPIKey  string `yaml:"api_key"`
+	ProviderVersion string `yaml:"version"`
+}
+
+// Save persists the config to its YAML file (ConfigFilePath).
+func (cfg Config) Save() error {
+	if cfg.ConfigFilePath == "" {
+		return fmt.Errorf("ConfigFilePath is empty, cannot save")
+	}
+	return SaveConfigToFile(cfg, cfg.ConfigFilePath)
+}
+
+func (cfg Config) HasOpenAIProxy() bool {
+	return cfg.ResponseProxy.Enabled && cfg.ResponseProxy.ProviderBaseURL != ""
+}
+
+func (cfg Config) HasAnthropicProxy() bool {
+	return cfg.AnthropicProxy.Enabled && cfg.AnthropicProxy.ProviderBaseURL != ""
 }
 
 // ReasoningLevelPreset describes a supported reasoning effort level.

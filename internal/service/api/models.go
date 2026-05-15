@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"moonbridge/internal/service/store"
+	"moonbridge/internal/config"
 )
 
 // ---- Models ----
@@ -130,33 +130,23 @@ func (r *Router) handlePutModel(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Build metadata JSON.
-	meta := map[string]any{
-		"display_name":       body.DisplayName,
-		"description":        body.Description,
-		"context_window":     body.ContextWindow,
-		"max_output_tokens":  body.MaxOutputTokens,
-	}
-	metaJSON, _ := json.Marshal(meta)
-
-	afterJSON, _ := json.Marshal(map[string]any{
-		"metadata": string(metaJSON),
-	})
-
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "create",
-		Resource:  "model",
-		TargetKey: slug,
-		After:     string(afterJSON),
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		cfg.Models[slug] = config.ModelDef{
+			ContextWindow:   body.ContextWindow,
+			MaxOutputTokens: body.MaxOutputTokens,
+			DisplayName:     body.DisplayName,
+			Description:     body.Description,
+		}
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存变更失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("保存失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "模型已保存并生效",
 	})
 }
 
@@ -185,18 +175,17 @@ func (r *Router) handleDeleteModel(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	chID, err := r.store.StageChange(store.ChangeRow{
-		Action:    "delete",
-		Resource:  "model",
-		TargetKey: slug,
+	err := r.modifyConfig(func(cfg *config.Config) error {
+		delete(cfg.Models, slug)
+		return nil
 	})
 	if err != nil {
-		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存删除失败: %v", err))
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("删除失败: %v", err))
 		return
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]any{
-		"change_id": chID,
-		"status":    "pending",
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "模型已删除并生效",
 	})
 }
