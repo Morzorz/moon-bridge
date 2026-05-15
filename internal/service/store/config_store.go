@@ -29,6 +29,12 @@ type ConfigStore interface {
 	// DiscardPendingChanges removes all pending changes.
 	DiscardPendingChanges() error
 
+	// ApplyChange applies a single pending change by ID, then runs the applier.
+	ApplyChange(ctx context.Context, id int64, applier ReloadFunc) error
+
+	// DiscardChange removes a single pending change by ID.
+	DiscardChange(id int64) error
+
 	// LoadAll reads the complete configuration from the main tables.
 	LoadAll() (*config.Config, error)
 

@@ -415,22 +415,34 @@ func (s *SQLiteConfigStore) loadFileConfig() (config.FileConfig, error) {
 }
 
 func applySetting(fc *config.FileConfig, key, value string) {
+	// Helper: try to unwrap JSON-wrapped scalar ("{\"value\":\"...\"}")
+	unwrapScalar := func(raw string) string {
+		if strings.HasPrefix(raw, "{") {
+			var m map[string]string
+			if json.Unmarshal([]byte(raw), &m) == nil {
+				if v, ok := m["value"]; ok {
+					return v
+				}
+			}
+		}
+		return raw
+	}
 	switch key {
 	case "mode":
-		fc.Mode = value
+		fc.Mode = unwrapScalar(value)
 	case "addr":
-		fc.Server.Addr = value
+		fc.Server.Addr = unwrapScalar(value)
 	case "auth_token":
-		fc.Server.AuthToken = value
+		fc.Server.AuthToken = unwrapScalar(value)
 	case "trace_requests":
 		var enabled bool
 		if err := json.Unmarshal([]byte(value), &enabled); err == nil {
 			fc.Trace.Enabled = enabled
 		}
 	case "log_level":
-		fc.Log.Level = value
+		fc.Log.Level = unwrapScalar(value)
 	case "log_format":
-		fc.Log.Format = value
+		fc.Log.Format = unwrapScalar(value)
 	case "defaults":
 		var d config.DefaultsFileConfig
 		if err := json.Unmarshal([]byte(value), &d); err == nil {
@@ -556,6 +568,73 @@ func (s *SQLiteConfigStore) ApplyPendingChanges(ctx context.Context, applier Rel
 		if err := applier(cfg); err != nil {
 			return fmt.Errorf("changes applied to DB but applier rejected: %w (DB is consistent)", err)
 		}
+	}
+	return nil
+}
+
+// --- ApplyChange (single) ---
+
+// ApplyChange applies a single pending change by ID.
+//  1. Begin transaction, apply change to main table, mark applied=1, commit.
+//  2. LoadAll and call applier outside the transaction.
+func (s *SQLiteConfigStore) ApplyChange(ctx context.Context, id int64, applier ReloadFunc) error {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+
+	// Fetch the single change.
+	changesTable := s.table("changes")
+	var ch ChangeRow
+	var appliedAt sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT id, batch_id, action, resource, target_key, before, after, applied, error, revision, created_at, applied_at "+
+			"FROM "+changesTable+" WHERE id = ? AND applied = 0", id).
+		Scan(&ch.ID, &ch.BatchID, &ch.Action, &ch.Resource, &ch.TargetKey,
+			&ch.Before, &ch.After, &ch.Applied, &ch.Error, &ch.Revision, &ch.CreatedAt, &appliedAt)
+	ch.AppliedAt = appliedAt.String
+	if err != nil {
+		return fmt.Errorf("find change #%d: %w", id, err)
+	}
+
+	// Transaction: apply to main table, mark applied.
+	if err := s.db.WithTx(ctx, func(tx db.Tx) error {
+		if err := s.applyChangeTx(ctx, tx, ch); err != nil {
+			return fmt.Errorf("apply change #%d: %w", id, err)
+		}
+		ts := nowStr()
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE "+changesTable+" SET applied = 1, applied_at = ? WHERE id = ?", ts, id); err != nil {
+			return fmt.Errorf("mark change #%d applied: %w", id, err)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("apply transaction: %w", err)
+	}
+
+	// Load config and call applier (outside transaction).
+	cfg, err := s.LoadAll()
+	if err != nil {
+		return fmt.Errorf("load config after apply: %w", err)
+	}
+	if applier != nil {
+		if err := applier(cfg); err != nil {
+			return fmt.Errorf("change #%d applied to DB but applier rejected: %w (DB is consistent)", id, err)
+		}
+	}
+	return nil
+}
+
+// --- DiscardChange (single) ---
+
+func (s *SQLiteConfigStore) DiscardChange(id int64) error {
+	changesTable := s.table("changes")
+	res, err := s.db.ExecContext(context.Background(),
+		"DELETE FROM "+changesTable+" WHERE id = ? AND applied = 0", id)
+	if err != nil {
+		return fmt.Errorf("discard change #%d: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("change #%d not found or already applied", id)
 	}
 	return nil
 }

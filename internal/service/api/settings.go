@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"moonbridge/internal/config"
@@ -58,6 +59,50 @@ func (r *Router) handlePutDefaults(w http.ResponseWriter, req *http.Request) {
 	respondJSON(w, http.StatusAccepted, map[string]any{
 		"change_id": chID,
 		"status":    "pending",
+	})
+}
+
+// GET /settings/mode
+func (r *Router) handleGetMode(w http.ResponseWriter, req *http.Request) {
+	cfg := r.runtime.Current()
+	respondJSON(w, http.StatusOK, map[string]any{
+		"mode": string(cfg.Config.Mode),
+	})
+}
+
+// PUT /settings/mode
+func (r *Router) handlePutMode(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_json", "无效的 JSON 请求体")
+		return
+	}
+	switch body.Mode {
+	case "Transform", "CaptureResponse", "CaptureAnthropic":
+	default:
+		respondError(w, http.StatusBadRequest, "invalid_mode", "mode 必须是 Transform / CaptureResponse / CaptureAnthropic 之一")
+		return
+	}
+
+	// 使用 JSON-wrapped scalar 格式存储
+	modeJSON, _ := json.Marshal(map[string]string{"value": body.Mode})
+	chID, err := r.store.StageChange(store.ChangeRow{
+		Action:    "update",
+		Resource:  "setting",
+		TargetKey: "mode",
+		After:     string(modeJSON),
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存 mode 变更失败: %v", err))
+		return
+	}
+
+	respondJSON(w, http.StatusAccepted, map[string]any{
+		"change_id":  chID,
+		"status":     "pending",
+		"message":    "Mode 变更已暂存，需应用后才生效。注意：mode 变更需要重启服务器才能完全切换。",
 	})
 }
 
@@ -404,6 +449,37 @@ func (r *Router) handlePostConfigImport(w http.ResponseWriter, req *http.Request
 		})
 	}
 
+	// Stage base server settings (mode, addr, etc.) so LoadAll can reconstruct config.
+	baseJSON := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	baseScalar := func(v string) string { return baseJSON(map[string]string{"value": v}) }
+	baseSettings := map[string]string{
+		"mode":           baseScalar(string(cfg.Mode)),
+		"addr":           baseScalar(cfg.Addr),
+		"auth_token":     baseScalar(cfg.AuthToken),
+		"log_level":      baseScalar(cfg.LogLevel),
+		"log_format":     baseScalar(cfg.LogFormat),
+		"trace_requests": baseJSON(cfg.TraceRequests),
+		"cache":          baseJSON(cfg.Cache),
+		"persistence":    baseJSON(cfg.Persistence),
+	}
+	for key, after := range baseSettings {
+		chID, err := r.store.StageChange(store.ChangeRow{
+			Action:    "update",
+			Resource:  "setting",
+			TargetKey: key,
+			After:     after,
+		})
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "stage_error", fmt.Sprintf("暂存基础设置 %q 失败: %v", key, err))
+			return
+		}
+		changes = append(changes, map[string]any{
+			"change_id": chID,
+			"resource":  "setting",
+			"target":    key,
+		})
+	}
+
 	respondJSON(w, http.StatusOK, map[string]any{
 		"changes": changes,
 		"count":   len(changes),
@@ -476,6 +552,49 @@ func (r *Router) handlePostChangesApply(w http.ResponseWriter, req *http.Request
 // POST /changes/discard
 func (r *Router) handlePostChangesDiscard(w http.ResponseWriter, req *http.Request) {
 	if err := r.store.DiscardPendingChanges(); err != nil {
+		respondError(w, http.StatusInternalServerError, "discard_error", fmt.Sprintf("丢弃变更失败: %v", err))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "变更已丢弃",
+	})
+}
+
+// POST /changes/{id}/apply
+func (r *Router) handlePostChangeApply(w http.ResponseWriter, req *http.Request) {
+	idStr := req.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_id", "无效的变更 ID")
+		return
+	}
+
+	err = r.store.ApplyChange(req.Context(), id, func(cfg *config.Config) error {
+		return r.runtime.Reload(*cfg)
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "apply_error", fmt.Sprintf("应用变更失败: %v", err))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "变更已应用生效",
+	})
+}
+
+// POST /changes/{id}/discard
+func (r *Router) handlePostChangeDiscard(w http.ResponseWriter, req *http.Request) {
+	idStr := req.PathValue("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_id", "无效的变更 ID")
+		return
+	}
+
+	if err := r.store.DiscardChange(id); err != nil {
 		respondError(w, http.StatusInternalServerError, "discard_error", fmt.Sprintf("丢弃变更失败: %v", err))
 		return
 	}

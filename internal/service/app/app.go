@@ -170,7 +170,10 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 			}
 		} else if loadErr != nil {
 			if strings.Contains(loadErr.Error(), "config not seeded") {
-				logger.Info("persistence store is empty, skipping DB config load")
+				logger.Info("持久化存储未初始化，从 YAML 导入种子配置")
+				if err := cs.SeedFromConfig(&cfg); err != nil {
+					logger.Warn("config store 种子导入失败", "error", err)
+				}
 			} else {
 				logger.Warn("config store 加载失败", "error", loadErr)
 			}
@@ -274,6 +277,7 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 		SessionManager:  sessMgr,
 		UsageTracker:    usageTrk,
 		TraceWriter:     traceWtr,
+		Store:           cs,
 	})
 
 	wrapped := handler

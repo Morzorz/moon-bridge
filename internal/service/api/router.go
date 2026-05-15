@@ -93,6 +93,8 @@ func registerRoutes(mux *http.ServeMux, r *Router) {
 	mux.HandleFunc("DELETE /routes/{alias}", r.handleDeleteRoute)
 
 	// Settings endpoints
+	mux.HandleFunc("GET /settings/mode", r.handleGetMode)
+	mux.HandleFunc("PUT /settings/mode", r.handlePutMode)
 	mux.HandleFunc("GET /defaults", r.handleGetDefaults)
 	mux.HandleFunc("PUT /defaults", r.handlePutDefaults)
 	mux.HandleFunc("GET /web-search", r.handleGetWebSearch)
@@ -111,6 +113,8 @@ func registerRoutes(mux *http.ServeMux, r *Router) {
 	mux.HandleFunc("GET /changes", r.handleListChanges)
 	mux.HandleFunc("POST /changes/apply", r.handlePostChangesApply)
 	mux.HandleFunc("POST /changes/discard", r.handlePostChangesDiscard)
+	mux.HandleFunc("POST /changes/{id}/apply", r.handlePostChangeApply)
+	mux.HandleFunc("POST /changes/{id}/discard", r.handlePostChangeDiscard)
 
 	// Status / Stats / Logs / Version
 	mux.HandleFunc("GET /status", r.handleGetStatus)
