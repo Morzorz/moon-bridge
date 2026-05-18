@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -115,7 +116,7 @@ func New(cfg Config) *Server {
 	if cfg.AnthropicProxyHandler != nil {
 		s.mux.Handle("/v1/anthropic/messages", cfg.AnthropicProxyHandler)
 		s.mux.Handle("/anthropic/v1/messages", cfg.AnthropicProxyHandler)
-		slog.Info("Anthropic 透明代理已启用", "path", "/v1/anthropic/messages")
+		slog.Info("Anthropic 透明代理已启用", "path", "/anthropic/v1/messages")
 	}
 
 	if cfg.Runtime != nil {
@@ -138,7 +139,74 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 			return
 		}
 	}
-	s.mux.ServeHTTP(writer, request)
+
+	// Log all requests (except /logs) with full details.
+	s.logRequest(writer, request)
+}
+
+func (s *Server) logRequest(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/logs" || request.URL.Path == "/api/v1/logs" {
+		s.mux.ServeHTTP(writer, request)
+		return
+	}
+
+	// Read the full request body, but only log a preview.
+	var reqBody string
+	if request.Body != nil {
+		bodyBytes, _ := io.ReadAll(request.Body)
+		reqBody = string(bodyBytes)
+		request.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	}
+	previewBody := reqBody
+	if len(previewBody) > 500 {
+		previewBody = previewBody[:500] + "..."
+	}
+
+	lrw := &logResponseWriter{ResponseWriter: writer}
+	start := time.Now()
+	s.mux.ServeHTTP(lrw, request)
+	dur := time.Since(start)
+
+	if lrw.statusCode == 0 {
+		lrw.statusCode = http.StatusNotFound
+	}
+
+	bodyPreview := lrw.body.String()
+	if len(bodyPreview) > 200 {
+		bodyPreview = bodyPreview[:200] + "..."
+	}
+	slog.Info(fmt.Sprintf("%s %s → %d",
+		request.Method,
+		request.URL.Path,
+		lrw.statusCode,
+	),
+		"method", request.Method,
+		"path", request.URL.Path,
+		"status", lrw.statusCode,
+		"duration", dur.String(),
+		"req_body", previewBody,
+		"resp", bodyPreview,
+	)
+}
+
+// logResponseWriter wraps http.ResponseWriter to capture status code and body.
+type logResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       bytes.Buffer
+}
+
+func (w *logResponseWriter) WriteHeader(code int) {
+	w.statusCode = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *logResponseWriter) Write(b []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.statusCode = http.StatusOK
+	}
+	w.body.Write(b)
+	return w.ResponseWriter.Write(b)
 }
 
 func (s *Server) handleModels(writer http.ResponseWriter, request *http.Request) {

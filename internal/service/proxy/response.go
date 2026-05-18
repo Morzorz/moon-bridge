@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ type ResponseConfig struct {
 	Tracer          *mbtrace.Tracer
 	TraceErrors     io.Writer
 	IsEnabled func() bool
+	ModelMap  map[string]string
 }
 
 type ResponseServer struct {
@@ -25,6 +27,7 @@ type ResponseServer struct {
 	tracer          *mbtrace.Tracer
 	traceErrors     io.Writer
 	isEnabled       func() bool
+	modelMap        map[string]string
 }
 
 func NewResponse(cfg ResponseConfig) (*ResponseServer, error) {
@@ -43,6 +46,7 @@ func NewResponse(cfg ResponseConfig) (*ResponseServer, error) {
 		tracer:          cfg.Tracer,
 		traceErrors:     cfg.TraceErrors,
 		isEnabled:       cfg.IsEnabled,
+		modelMap:        cfg.ModelMap,
 	}, nil
 }
 
@@ -64,7 +68,23 @@ func (server *ResponseServer) serveProxy(writer http.ResponseWriter, request *ht
 		return
 	}
 
-	targetURL := upstreamURL(server.upstreamBaseURL, request)
+	// Model mapping.
+	if len(server.modelMap) > 0 {
+		var bodyMap map[string]any
+		if err := json.Unmarshal(requestBody, &bodyMap); err == nil {
+			if model, ok := bodyMap["model"].(string); ok {
+				if mapped, ok := server.modelMap[model]; ok {
+					log.Info("模型映射", "from", model, "to", mapped)
+					bodyMap["model"] = mapped
+					if newBody, err := json.Marshal(bodyMap); err == nil {
+						requestBody = newBody
+					}
+				}
+			}
+		}
+	}
+
+	targetURL := server.upstreamBaseURL + "/messages"
 	upstreamRequest, err := newUpstreamRequest(request, targetURL, requestBody, server.overrideAuth)
 	if err != nil {
 		http.Error(writer, "创建上游请求失败", http.StatusBadGateway)

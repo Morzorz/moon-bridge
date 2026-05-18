@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -18,6 +19,8 @@ type AnthropicConfig struct {
 	TraceErrors     io.Writer
 	// IsEnabled is called on each request; if nil or returns false, returns 404.
 	IsEnabled func() bool
+	// ModelMap maps incoming model names to upstream model names.
+	ModelMap map[string]string
 }
 
 type AnthropicServer struct {
@@ -28,6 +31,7 @@ type AnthropicServer struct {
 	tracer          *mbtrace.Tracer
 	traceErrors     io.Writer
 	isEnabled       func() bool
+	modelMap        map[string]string
 }
 
 func NewAnthropic(cfg AnthropicConfig) (*AnthropicServer, error) {
@@ -47,6 +51,7 @@ func NewAnthropic(cfg AnthropicConfig) (*AnthropicServer, error) {
 		tracer:          cfg.Tracer,
 		traceErrors:     cfg.TraceErrors,
 		isEnabled:       cfg.IsEnabled,
+		modelMap:        cfg.ModelMap,
 	}, nil
 }
 
@@ -68,7 +73,23 @@ func (server *AnthropicServer) serveProxy(writer http.ResponseWriter, request *h
 		return
 	}
 
-	targetURL := upstreamURL(server.upstreamBaseURL, request)
+	// Model mapping: if the body has a "model" field that matches the map, replace it.
+	if len(server.modelMap) > 0 {
+		var bodyMap map[string]any
+		if err := json.Unmarshal(requestBody, &bodyMap); err == nil {
+			if model, ok := bodyMap["model"].(string); ok {
+				if mapped, ok := server.modelMap[model]; ok {
+					log.Info("模型映射", "from", model, "to", mapped)
+					bodyMap["model"] = mapped
+					if newBody, err := json.Marshal(bodyMap); err == nil {
+						requestBody = newBody
+					}
+				}
+			}
+		}
+	}
+
+	targetURL := server.upstreamBaseURL + "/messages"
 	upstreamRequest, err := newUpstreamRequest(request, targetURL, requestBody, server.overrideAuth)
 	if err != nil {
 		http.Error(writer, "创建上游请求失败", http.StatusBadGateway)

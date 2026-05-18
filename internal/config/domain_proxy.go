@@ -14,12 +14,12 @@ type ProxyConfig struct {
 // ProxyFromGlobalConfig extracts proxy-relevant fields from the global config.
 func ProxyFromGlobalConfig(cfg *Config) ProxyConfig {
 	return ProxyConfig{
-		ResponseModel:            cfg.ResponseProxy.Model,
-		ResponseProviderBaseURL:  cfg.ResponseProxy.ProviderBaseURL,
-		ResponseProviderAPIKey:   cfg.ResponseProxy.ProviderAPIKey,
-		AnthropicModel:           cfg.AnthropicProxy.Model,
-		AnthropicProviderBaseURL: cfg.AnthropicProxy.ProviderBaseURL,
-		AnthropicProviderAPIKey:  cfg.AnthropicProxy.ProviderAPIKey,
-		AnthropicProviderVersion: cfg.AnthropicProxy.ProviderVersion,
+		ResponseModel:            cfg.OpenAIProvider,
+		ResponseProviderBaseURL:  "",
+		ResponseProviderAPIKey:   "",
+		AnthropicModel:           cfg.AnthropicProvider,
+		AnthropicProviderBaseURL: "",
+		AnthropicProviderAPIKey:  "",
+		AnthropicProviderVersion: "",
 	}
 }

@@ -164,6 +164,15 @@ func (r *Router) handleDeleteModel(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// Check if any route references this model — refuse if referenced.
+	for alias, route := range cfg.Config.Routes {
+		if route.Model == slug {
+			respondError(w, http.StatusConflict, "referenced",
+				fmt.Sprintf("model %q 仍被路由 %q 引用，无法删除。请先删除路由或在路由管理中更换模型", slug, alias))
+			return
+		}
+	}
+
 	// Check if any provider offers this model — refuse if referenced.
 	for pk, def := range cfg.Config.ProviderDefs {
 		for _, offer := range def.Offers {

@@ -131,11 +131,11 @@ export function deleteRoute(alias) {
 export function getMode()              { return request('/settings/mode') }
 export function updateMode(mode)       { return request('/settings/mode', { method: 'PUT', body: JSON.stringify({ mode }) }) }
 export function getCapabilities()      { return request('/capabilities') }
-export function updateResponseProxy(enabled) {
-  return request('/capabilities/proxy/response', { method: 'PUT', body: JSON.stringify({ enabled }) })
+export function updateResponseProxy(enabled, provider, modelMap) {
+  return request('/capabilities/proxy/response', { method: 'PUT', body: JSON.stringify({ enabled, provider, model_map: modelMap || null }) })
 }
-export function updateAnthropicProxy(enabled) {
-  return request('/capabilities/proxy/anthropic', { method: 'PUT', body: JSON.stringify({ enabled }) })
+export function updateAnthropicProxy(enabled, provider, modelMap) {
+  return request('/capabilities/proxy/anthropic', { method: 'PUT', body: JSON.stringify({ enabled, provider, model_map: modelMap || null }) })
 }
 export function getDefaults()          { return request('/defaults') }
 export function updateDefaults(body) {

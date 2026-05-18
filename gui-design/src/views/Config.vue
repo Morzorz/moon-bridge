@@ -72,7 +72,7 @@
     <div class="modal-content" style="max-width:480px;">
       <h2 class="modal-title">确认导入</h2>
       <p>确定要用新的配置覆盖当前配置吗？</p>
-      <p class="text-secondary mt-2" style="font-size:12px;">导入后会暂存为 pending change，需在变更管理页应用。</p>
+      <p class="text-secondary mt-2" style="font-size:12px;">导入后立即生效。</p>
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="showImportConfirm=false">取消</button>
         <button class="btn btn-success" @click="confirmImport" :disabled="importing">

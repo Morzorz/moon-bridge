@@ -39,7 +39,6 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	printMode := flags.Bool("print-mode", false, "Print configured mode and exit")
 	printDefaultModel := flags.Bool("print-default-model", false, "Print configured default model alias and exit")
 	printCodexModel := flags.Bool("print-codex-model", false, "Print configured Codex model and exit")
-	printClaudeModel := flags.Bool("print-claude-model", false, "Print configured Claude Code model and exit")
 	printCodexConfig := flags.String("print-codex-config", "", "Print Codex config.toml for the model alias and exit")
 	dumpConfigSchema := flags.Bool("dump-config-schema", false, "Generate config.schema.json alongside config and exit")
 	codexBaseURL := flags.String("codex-base-url", "", "Base URL to write in generated Codex config")
@@ -109,10 +108,6 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	if *printCodexModel {
 		fmt.Fprintln(stdout, cfg.CodexModel())
-		return exitOK
-	}
-	if *printClaudeModel {
-		fmt.Fprintln(stdout, cfg.AnthropicProxy.Model)
 		return exitOK
 	}
 	if *printCodexConfig != "" {

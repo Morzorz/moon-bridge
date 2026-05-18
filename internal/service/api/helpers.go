@@ -96,6 +96,7 @@ func AuthMiddleware(tokenProvider func() string) func(http.Handler) http.Handler
 					return
 				}
 			}
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -133,8 +134,7 @@ func maskFileConfigSecrets(fc *config.FileConfig) {
 		fc.Providers[key] = def
 	}
 
-	fc.Proxy.Response.APIKey = maskAPIKey(fc.Proxy.Response.APIKey)
-	fc.Proxy.Anthropic.APIKey = maskAPIKey(fc.Proxy.Anthropic.APIKey)
+	// Proxy API keys are inherited from providers; masked at provider level.
 
 	fc.WebSearch.TavilyAPIKey = maskAPIKey(fc.WebSearch.TavilyAPIKey)
 	fc.WebSearch.FirecrawlAPIKey = maskAPIKey(fc.WebSearch.FirecrawlAPIKey)

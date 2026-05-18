@@ -1709,23 +1709,37 @@ func prependCachedThinking(upstreamReq *anthropic.MessageRequest, sess *session.
 		if msg.Role != "assistant" || len(msg.Content) == 0 {
 			continue
 		}
+		// Only tool-call assistant messages require thinking replay fallback.
+		hasToolUse := false
+		for _, block := range msg.Content {
+			if block.Type == "tool_use" {
+				hasToolUse = true
+				break
+			}
+		}
+		if !hasToolUse {
+			continue
+		}
 		// Check if the message already has a thinking block.
 		if hasThinkingBlock(msg.Content) {
 			continue
 		}
 		// Try to prepend cached thinking by tool call ID (for tool_use messages).
+		foundCachedThinking := false
 		for _, block := range msg.Content {
-			if block.Type == "tool_use" && block.ID != "" {
-				if cached, ok := state.CachedForToolCall(block.ID); ok {
-					// Prepend thinking block directly to this message, not to the last message.
-					msg.Content = append([]anthropic.ContentBlock{normalizeThinkingBlock(cached)}, msg.Content...)
-				}
+			if block.Type != "tool_use" || block.ID == "" {
+				continue
+			}
+			if cached, ok := state.CachedForToolCall(block.ID); ok {
+				// Prepend thinking block directly to this message, not to the last message.
+				msg.Content = append([]anthropic.ContentBlock{normalizeThinkingBlock(cached)}, msg.Content...)
+				foundCachedThinking = true
 				break
 			}
 		}
 		// Fallback: prepend empty thinking block as response boundary.
-		// Prevents model from continuing previous response text.
-		if !hasThinkingBlock(msg.Content) {
+		// Only applies to tool-use messages where no cached thinking was found.
+		if !foundCachedThinking {
 			prepended, _ := deepseekv4.PrependRequiredThinkingForAssistantText(anthropicContentSliceToFormat(msg.Content))
 			msg.Content = formatContentSliceToAnthropic(prepended)
 		}
@@ -1857,6 +1871,9 @@ func formatContentToAnthropic(block format.CoreContentBlock) anthropic.ContentBl
 		out.ID = block.ToolUseID
 		out.Name = block.ToolName
 		out.Input = block.ToolInput
+	case "tool_result":
+		out.ToolUseID = block.ToolUseID
+		out.Content = block.ToolResultContent
 	}
 	return out
 }

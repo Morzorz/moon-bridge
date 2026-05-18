@@ -49,7 +49,7 @@
         </div>
         <div class="card">
           <div class="card-header"><span class="card-title">缓存命中率</span></div>
-          <div class="card-value">{{ summary.cache_hit_rate != null ? (summary.cache_hit_rate * 100).toFixed(1) + '%' : '—' }}</div>
+          <div class="card-value">{{ summary.cache_hit_rate != null ? summary.cache_hit_rate.toFixed(1) + '%' : '—' }}</div>
         </div>
         <div class="card">
           <div class="card-header"><span class="card-title">累计费用</span></div>
@@ -85,7 +85,7 @@
               {{ capState.proxy_anthropic ? '已启用' : '已禁用' }}
             </span>
           </div>
-          <div class="text-secondary" style="font-size:12px;">/v1/anthropic/messages</div>
+          <div class="text-secondary" style="font-size:12px;">/anthropic/v1/messages</div>
         </div>
       </div>
 

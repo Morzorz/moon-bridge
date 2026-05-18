@@ -215,16 +215,14 @@ type CacheFileConfig struct {
 }
 
 type ProxyFileConfig struct {
-	Response  ProxyTargetFileConfig `yaml:"response,omitempty" json:"response,omitempty"`
-	Anthropic ProxyTargetFileConfig `yaml:"anthropic,omitempty" json:"anthropic,omitempty"`
+	Response  ProxyTargetRef `yaml:"response,omitempty" json:"response,omitempty"`
+	Anthropic ProxyTargetRef `yaml:"anthropic,omitempty" json:"anthropic,omitempty"`
 }
 
-type ProxyTargetFileConfig struct {
-	Enabled bool   `yaml:"enabled" json:"enabled"`
-	BaseURL string `yaml:"base_url" json:"base_url"`
-	APIKey  string `yaml:"api_key" json:"api_key"`
-	Model   string `yaml:"model,omitempty" json:"model,omitempty"`
-	Version string `yaml:"version,omitempty" json:"version,omitempty"`
+type ProxyTargetRef struct {
+	Enabled  bool              `yaml:"enabled" json:"enabled"`
+	Provider string            `yaml:"provider,omitempty" json:"provider,omitempty"`
+	ModelMap map[string]string `yaml:"model_map,omitempty" json:"model_map,omitempty"`
 }
 
 // ---- Loading functions ----
@@ -347,9 +345,6 @@ func FromFileConfigWithOptions(fileConfig FileConfig, opts LoadOptions) (Config,
 	}
 
 	// Proxy (flattened, replaces developer.proxy).
-	responseProxy := FromResponseProxyFileConfig(fileConfig.Proxy.Response)
-	anthropicProxy := FromAnthropicProxyFileConfig(fileConfig.Proxy.Anthropic)
-
 	cfg := Config{
 		Mode:             mode,
 		Addr:             valueOrDefault(strings.TrimSpace(fileConfig.Server.Addr), DefaultAddr),
@@ -373,9 +368,13 @@ func FromFileConfigWithOptions(fileConfig FileConfig, opts LoadOptions) (Config,
 		DefaultMaxTokens: intOrDefault(defaults.MaxTokens, 1024),
 		Cache:            fromCacheFileConfig(fileConfig.Cache),
 		Persistence:      FromPersistenceFileConfig(fileConfig.Persistence),
-		ResponseProxy:    responseProxy,
-		AnthropicProxy:   anthropicProxy,
-		Extensions:       topExtensions,
+		OpenAIProxyEnabled:     fileConfig.Proxy.Response.Enabled,
+		AnthropicProxyEnabled:  fileConfig.Proxy.Anthropic.Enabled,
+		OpenAIProvider:         fileConfig.Proxy.Response.Provider,
+		AnthropicProvider:      fileConfig.Proxy.Anthropic.Provider,
+		OpenAIProxyModelMap:    fileConfig.Proxy.Response.ModelMap,
+		AnthropicProxyModelMap: fileConfig.Proxy.Anthropic.ModelMap,
+		Extensions:             topExtensions,
 		extensionSpecs:   specs,
 	}
 
@@ -813,25 +812,6 @@ func SaveConfigToFile(cfg Config, path string) error {
 		return fmt.Errorf("write config: %w", err)
 	}
 	return nil
-}
-
-func FromResponseProxyFileConfig(fileConfig ProxyTargetFileConfig) ResponseProxyConfig {
-	return ResponseProxyConfig{
-		Enabled:         fileConfig.Enabled,
-		Model:           strings.TrimSpace(fileConfig.Model),
-		ProviderBaseURL: strings.TrimRight(strings.TrimSpace(fileConfig.BaseURL), "/"),
-		ProviderAPIKey:  strings.TrimSpace(fileConfig.APIKey),
-	}
-}
-
-func FromAnthropicProxyFileConfig(fileConfig ProxyTargetFileConfig) AnthropicProxyConfig {
-	return AnthropicProxyConfig{
-		Enabled:         fileConfig.Enabled,
-		Model:           strings.TrimSpace(fileConfig.Model),
-		ProviderBaseURL: strings.TrimRight(strings.TrimSpace(fileConfig.BaseURL), "/"),
-		ProviderAPIKey:  strings.TrimSpace(fileConfig.APIKey),
-		ProviderVersion: valueOrDefault(strings.TrimSpace(fileConfig.Version), "2023-06-01"),
-	}
 }
 
 func FromPersistenceFileConfig(fileConfig PersistenceFileConfig) PersistenceConfig {

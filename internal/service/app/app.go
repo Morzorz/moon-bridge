@@ -6,13 +6,11 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"log/slog"
 	"moonbridge/internal/config"
 	"moonbridge/internal/db"
-	"moonbridge/internal/service/store"
 	"moonbridge/internal/logger"
 	"moonbridge/internal/protocol/anthropic"
 	"moonbridge/internal/protocol/google"
@@ -42,16 +40,6 @@ func WelcomeMessage() string {
 }
 
 func RunServer(ctx context.Context, cfg config.Config, errors io.Writer) error {
-	// Backward compatibility: legacy mode values auto-enable proxy capabilities
-	if cfg.Mode == config.ModeCaptureResponse && !cfg.ResponseProxy.Enabled && cfg.ResponseProxy.ProviderBaseURL != "" {
-		cfg.ResponseProxy.Enabled = true
-		slog.Info("自动启用 OpenAI 代理（来自旧 mode=CaptureResponse 配置）")
-	}
-	if cfg.Mode == config.ModeCaptureAnthropic && !cfg.AnthropicProxy.Enabled && cfg.AnthropicProxy.ProviderBaseURL != "" {
-		cfg.AnthropicProxy.Enabled = true
-		slog.Info("自动启用 Anthropic 代理（来自旧 mode=CaptureAnthropic 配置）")
-	}
-
 	slog.Info("启动服务器", "mode", "Unified", "addr", cfg.Addr)
 	return runTransform(ctx, cfg, errors)
 }
@@ -111,6 +99,7 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 	logger.SetConsumeFunc(func(entries []logger.LogEntry) []logger.LogEntry {
 		return plugins.ConsumeGlobalLog(entries)
 	})
+	logger.CaptureLogToBuffer()
 
 	// Initialize persistence layer (db.Registry).
 	dbRegistry := db.NewRegistry(slog.Default())
@@ -124,65 +113,10 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 			dbRegistry.RegisterConsumer(cons)
 		}
 	}
-	// Register the config_store consumer for configuration persistence.
-	configStoreConsumer := store.NewConfigStoreConsumer(logger.L())
-	configStoreConsumer.SetExtensionSpecs(BuiltinExtensions().ConfigSpecs())
-	dbRegistry.RegisterConsumer(configStoreConsumer)
 	if err := dbRegistry.Init(ctx, cfg.Persistence.ActiveProvider); err != nil {
 		return fmt.Errorf("init persistence: %w", err)
 	}
 	defer dbRegistry.Shutdown()
-
-	// === Phase 2: ConfigStore bootstrap ===
-	// Check if the store is available and has existing data.
-	cs := configStoreConsumer.Store()
-	if cs != nil {
-		if dbCfg, loadErr := cs.LoadAll(); loadErr == nil {
-			if len(dbCfg.ProviderDefs) > 0 || len(dbCfg.Routes) > 0 {
-				// DB has existing configuration: use it as the active config.
-				logger.Info("从持久化存储加载配置",
-					"providers", len(dbCfg.ProviderDefs),
-					"routes", len(dbCfg.Routes))
-				// Preserve the YAML file path so Save() works
-				filePath := cfg.ConfigFilePath
-				cfg = *dbCfg
-				cfg.ConfigFilePath = filePath
-				dbProviderCfg := config.ProviderFromGlobalConfig(&cfg)
-
-				// Rebuild provider manager and pricing from DB-loaded config.
-				providerDefs = provider.BuildProviderDefsFromConfig(dbProviderCfg)
-				modelRoutes = provider.BuildModelRoutesFromConfig(dbProviderCfg)
-				providerMgr, err = provider.NewProviderManager(providerDefs, modelRoutes)
-				if err != nil {
-					return fmt.Errorf("rebuild provider manager from DB: %w", err)
-				}
-				_ = resolveDefaultClient(providerMgr, errors)
-				resolvePerProviderWebSearch(ctx, cfg, providerMgr, errors)
-
-				pricing = provider.BuildPricingFromConfig(dbProviderCfg)
-				if len(pricing) > 0 {
-					sessionStats.SetPricing(pricing)
-				}
-			} else {
-				// DB is empty: seed from YAML config.
-				logger.Info("持久化存储为空，从 YAML 导入种子配置")
-				if err := cs.SeedFromConfig(&cfg); err != nil {
-					logger.Warn("config store 种子导入失败", "error", err)
-				}
-			}
-		} else if loadErr != nil {
-			if strings.Contains(loadErr.Error(), "config not seeded") {
-				logger.Info("持久化存储未初始化，从 YAML 导入种子配置")
-				if err := cs.SeedFromConfig(&cfg); err != nil {
-					logger.Warn("config store 种子导入失败", "error", err)
-				}
-			} else {
-				logger.Warn("config store 加载失败", "error", loadErr)
-			}
-		}
-	} else {
-		logger.Warn("config store 不可用，跳过持久化引导")
-	}
 
 		// === Phase 3: Build Runtime ===
 	rt := runtime.NewRuntime(cfg, providerMgr, pricing)
@@ -261,38 +195,42 @@ func runTransform(ctx context.Context, cfg config.Config, errors io.Writer) erro
 	// Optional: create proxy handlers for transparent proxy endpoints.
 	var openaiProxyHandler, anthropicProxyHandler http.Handler
 	if cfg.HasOpenAIProxy() {
+		def := cfg.ProviderDefs[cfg.OpenAIProvider]
 		p, err := proxy.NewResponse(proxy.ResponseConfig{
-			UpstreamBaseURL: cfg.ResponseProxy.ProviderBaseURL,
-			APIKey:          cfg.ResponseProxy.ProviderAPIKey,
+			UpstreamBaseURL: def.BaseURL,
+			APIKey:          def.APIKey,
 			Tracer:          tracer,
 			TraceErrors:     errors,
 			IsEnabled: func() bool {
 				return rt.Current().Config.HasOpenAIProxy()
 			},
+			ModelMap: cfg.OpenAIProxyModelMap,
 		})
 		if err != nil {
 			slog.Warn("OpenAI 代理初始化失败，已禁用", "error", err)
 		} else {
 			openaiProxyHandler = p
-			slog.Info("OpenAI 透明代理已就绪", "upstream", cfg.ResponseProxy.ProviderBaseURL)
+			slog.Info("OpenAI 透明代理已就绪", "provider", cfg.OpenAIProvider)
 		}
 	}
 	if cfg.HasAnthropicProxy() {
+		def := cfg.ProviderDefs[cfg.AnthropicProvider]
 		p, err := proxy.NewAnthropic(proxy.AnthropicConfig{
-			UpstreamBaseURL: cfg.AnthropicProxy.ProviderBaseURL,
-			APIKey:          cfg.AnthropicProxy.ProviderAPIKey,
-			Version:         cfg.AnthropicProxy.ProviderVersion,
+			UpstreamBaseURL: def.BaseURL,
+			APIKey:          def.APIKey,
+			Version:         def.Version,
 			Tracer:          tracer,
 			TraceErrors:     errors,
 			IsEnabled: func() bool {
 				return rt.Current().Config.HasAnthropicProxy()
 			},
+			ModelMap: cfg.AnthropicProxyModelMap,
 		})
 		if err != nil {
 			slog.Warn("Anthropic 代理初始化失败，已禁用", "error", err)
 		} else {
 			anthropicProxyHandler = p
-			slog.Info("Anthropic 透明代理已就绪", "upstream", cfg.AnthropicProxy.ProviderBaseURL)
+			slog.Info("Anthropic 透明代理已就绪", "provider", cfg.AnthropicProvider)
 		}
 	}
 
@@ -525,39 +463,6 @@ func probeModelWebSearch(ctx context.Context, modelAlias string, pm *provider.Pr
 	}
 	slog.Info("模型支持网页搜索", "model", modelAlias)
 	return "enabled"
-}
-
-func runCaptureResponse(ctx context.Context, cfg config.Config, errors io.Writer) error {
-	tracer := mbtrace.New(captureResponseTraceConfig(cfg.TraceRequests))
-	logTrace(errors, "response proxy", tracer)
-	handler, err := proxy.NewResponse(proxy.ResponseConfig{
-		UpstreamBaseURL: cfg.ResponseProxy.ProviderBaseURL,
-		APIKey:          cfg.ResponseProxy.ProviderAPIKey,
-		Tracer:          tracer,
-		TraceErrors:     errors,
-	})
-	if err != nil {
-		return err
-	}
-	slog.Info("响应代理已初始化", "upstream", cfg.ResponseProxy.ProviderBaseURL)
-	return runHTTPServer(ctx, cfg.Addr, handler, errors, nil)
-}
-
-func runCaptureAnthropic(ctx context.Context, cfg config.Config, errors io.Writer) error {
-	tracer := mbtrace.New(captureAnthropicTraceConfig(cfg.TraceRequests))
-	logTrace(errors, "anthropic proxy", tracer)
-	handler, err := proxy.NewAnthropic(proxy.AnthropicConfig{
-		UpstreamBaseURL: cfg.AnthropicProxy.ProviderBaseURL,
-		APIKey:          cfg.AnthropicProxy.ProviderAPIKey,
-		Version:         cfg.AnthropicProxy.ProviderVersion,
-		Tracer:          tracer,
-		TraceErrors:     errors,
-	})
-	if err != nil {
-		return err
-	}
-	slog.Info("Anthropic 代理已初始化", "upstream", cfg.AnthropicProxy.ProviderBaseURL)
-	return runHTTPServer(ctx, cfg.Addr, handler, errors, nil)
 }
 
 func logTrace(errors io.Writer, label string, tracer *mbtrace.Tracer) {

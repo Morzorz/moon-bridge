@@ -47,12 +47,40 @@
           </span>
         </label>
       </div>
+      <!-- OpenAI Provider selector (shown when enabled) -->
+      <div v-if="capsForm.proxy_openai" class="mb-4" style="margin-top:-12px; padding:0 14px;">
+        <select class="form-select" v-model="capsForm.openai_provider" @change="saveCap('proxy_openai')" style="font-size:13px;">
+          <option value="" disabled>选择 Provider...</option>
+          <option v-for="p in providerList" :key="p.key" :value="p.key">{{ p.key }}</option>
+        </select>
+        <div class="mt-2" style="border:1px solid var(--border-color); border-radius:var(--border-radius-sm); padding:8px;">
+          <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px;">模型映射（客户端模型 → 上游模型）</div>
+          <div v-for="(v, k, i) in capsForm.openai_model_map" :key="i" class="flex gap-1 mb-1">
+            <input class="form-input" style="width:40%; font-size:12px; padding:4px 6px;" :value="k" disabled />
+            <span style="padding:0 4px; line-height:28px;">→</span>
+            <select class="form-select" style="flex:1; font-size:12px; padding:3px 6px;" :value="v" @change="e => updateMapVal('openai', k, e.target.value)">
+              <option value="" disabled>选择模型...</option>
+              <option v-for="m in providerOffers.openai" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" @click="delMap('openai', k)" style="padding:2px 6px;">✕</button>
+          </div>
+          <div class="flex gap-1 mt-1">
+            <input class="form-input" style="width:40%; font-size:12px; padding:4px 6px;" v-model="newMapKey.openai" placeholder="客户端模型名" />
+            <span style="padding:0 4px; line-height:28px;">→</span>
+            <select class="form-select" style="flex:1; font-size:12px; padding:3px 6px;" v-model="newMapVal.openai">
+              <option value="" disabled>选择模型...</option>
+              <option v-for="m in providerOffers.openai" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button class="btn btn-sm" style="padding:2px 8px;" @click="addMap('openai')">＋</button>
+          </div>
+        </div>
+      </div>
 
       <!-- Anthropic Proxy -->
       <div class="flex items-center justify-between mb-4" style="padding:14px; background:var(--bg-primary); border-radius:var(--border-radius-sm); border:1px solid var(--border-color);">
         <div>
           <strong>🔗 Anthropic 透明代理</strong>
-          <div class="text-secondary" style="font-size:12px; margin-top:2px;">/v1/anthropic/messages — 透传至 Anthropic</div>
+          <div class="text-secondary" style="font-size:12px; margin-top:2px;">/anthropic/v1/messages — 透传至 Anthropic</div>
         </div>
         <label class="toggle" style="position:relative; display:inline-block; width:44px; height:24px;">
           <input type="checkbox" v-model="capsForm.proxy_anthropic" @change="saveCap('proxy_anthropic')" style="opacity:0; width:0; height:0;" />
@@ -65,7 +93,34 @@
           </span>
         </label>
       </div>
-
+      <!-- Anthropic Provider selector (shown when enabled) -->
+      <div v-if="capsForm.proxy_anthropic" style="margin-top:-8px; padding:0 14px 12px;">
+        <select class="form-select" v-model="capsForm.anthropic_provider" @change="saveCap('proxy_anthropic')" style="font-size:13px;">
+          <option value="" disabled>选择 Provider...</option>
+          <option v-for="p in providerList" :key="p.key" :value="p.key">{{ p.key }}</option>
+        </select>
+        <div class="mt-2" style="border:1px solid var(--border-color); border-radius:var(--border-radius-sm); padding:8px;">
+          <div style="font-size:12px; color:var(--text-secondary); margin-bottom:6px;">模型映射（客户端模型 → 上游模型）</div>
+          <div v-for="(v, k, i) in capsForm.anthropic_model_map" :key="i" class="flex gap-1 mb-1">
+            <input class="form-input" style="width:40%; font-size:12px; padding:4px 6px;" :value="k" disabled />
+            <span style="padding:0 4px; line-height:28px;">→</span>
+            <select class="form-select" style="flex:1; font-size:12px; padding:3px 6px;" :value="v" @change="e => updateMapVal('anthropic', k, e.target.value)">
+              <option value="" disabled>选择模型...</option>
+              <option v-for="m in providerOffers.anthropic" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" @click="delMap('anthropic', k)" style="padding:2px 6px;">✕</button>
+          </div>
+          <div class="flex gap-1 mt-1">
+            <input class="form-input" style="width:40%; font-size:12px; padding:4px 6px;" v-model="newMapKey.anthropic" placeholder="客户端模型名" />
+            <span style="padding:0 4px; line-height:28px;">→</span>
+            <select class="form-select" style="flex:1; font-size:12px; padding:3px 6px;" v-model="newMapVal.anthropic">
+              <option value="" disabled>选择模型...</option>
+              <option v-for="m in providerOffers.anthropic" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button class="btn btn-sm" style="padding:2px 8px;" @click="addMap('anthropic')">＋</button>
+          </div>
+        </div>
+      </div>
 
     </div>
 
@@ -152,7 +207,7 @@ import { ref, onMounted, inject } from 'vue'
 import {
   getDefaults, updateDefaults,
   getWebSearch, updateWebSearch,
-  listExtensions, getMode, updateMode,
+  listExtensions, getMode, updateMode, listProviders,
   getCapabilities, updateResponseProxy, updateAnthropicProxy,
 } from '../api/index.js'
 const showToast = inject('showToast')
@@ -169,9 +224,22 @@ const currentMode = ref('')
 const modeChanged = ref(false)
 const savingMode = ref(false)
 const modeForm = ref({ mode: 'Transform' })
-const capsForm = ref({ proxy_openai: false, proxy_anthropic: false })
+const capsForm = ref({ proxy_openai: false, proxy_anthropic: false, openai_provider: '', anthropic_provider: '', openai_model_map: {}, anthropic_model_map: {} })
+const newMapKey = ref({ openai: '', anthropic: '' })
+const newMapVal = ref({ openai: '', anthropic: '' })
+const providerList = ref([])
+const providerOffers = ref({ openai: [], anthropic: [] })
 const modelList = ref([])
 const defaultModelOptions = ref([])
+
+function getOffers(type) {
+  const providerKey = type === 'openai' ? capsForm.value.openai_provider : capsForm.value.anthropic_provider
+  if (!providerKey) { providerOffers.value[type] = []; return }
+  fetch(`/api/v1/providers/${providerKey}`)
+    .then(r => r.json())
+    .then(d => { providerOffers.value[type] = (d.offers || []).map(o => o.model) })
+    .catch(() => { providerOffers.value[type] = [] })
+}
 const extensions = ref([])
 
 // Defaults
@@ -186,13 +254,48 @@ const savingWeb = ref(false)
 
 async function saveCap(key) {
   try {
-    const enabled = capsForm.value[key]
-    if (key === 'proxy_openai') await updateResponseProxy(enabled)
-    else await updateAnthropicProxy(enabled)
+    if (key === 'proxy_openai') {
+      await updateResponseProxy(
+        capsForm.value.proxy_openai,
+        capsForm.value.openai_provider,
+        capsForm.value.openai_model_map
+      )
+    } else {
+      await updateAnthropicProxy(
+        capsForm.value.proxy_anthropic,
+        capsForm.value.anthropic_provider,
+        capsForm.value.anthropic_model_map
+      )
+    }
+    getOffers('openai')
+    getOffers('anthropic')
     showToast(`能力开关变更已生效`, 'success')
   } catch (e) {
     showToast(`保存失败: ${e.message}`, 'error')
   }
+}
+
+function addMap(type) {
+  const key = newMapKey.value[type].trim()
+  const val = newMapVal.value[type].trim()
+  if (!key || !val) return
+  const map = type === 'openai' ? capsForm.value.openai_model_map : capsForm.value.anthropic_model_map
+  map[key] = val
+  newMapKey.value[type] = ''
+  newMapVal.value[type] = ''
+  saveCap('proxy_' + type)
+}
+
+function delMap(type, key) {
+  const map = type === 'openai' ? capsForm.value.openai_model_map : capsForm.value.anthropic_model_map
+  delete map[key]
+  saveCap('proxy_' + type)
+}
+
+function updateMapVal(type, key, val) {
+  const map = type === 'openai' ? capsForm.value.openai_model_map : capsForm.value.anthropic_model_map
+  map[key] = val
+  saveCap('proxy_' + type)
 }
 
 async function saveMode() {
@@ -244,17 +347,25 @@ function configureExt(ext) {
 
 async function fetchData() {
   try {
-    const [caps, mo, d, w, e, mRes, rRes] = await Promise.all([
+    const [caps, mo, d, w, e, mRes, rRes, pRes] = await Promise.all([
       getCapabilities(), getMode(), getDefaults(), getWebSearch(), listExtensions(),
       import('../api/index.js').then(m => m.listModels({ limit: 100 })),
       import('../api/index.js').then(m => m.listRoutes({ limit: 100 })),
+      listProviders(),
     ])
     currentMode.value = mo.mode
     modeForm.value = { mode: mo.mode }
     capsForm.value = {
       proxy_openai: caps.proxy_openai || false,
       proxy_anthropic: caps.proxy_anthropic || false,
+      openai_provider: caps.openai_provider || '',
+      anthropic_provider: caps.anthropic_provider || '',
+      openai_model_map: caps.openai_model_map || {},
+      anthropic_model_map: caps.anthropic_model_map || {},
     }
+    providerList.value = (pRes && pRes.data) ? pRes.data : []
+    getOffers('openai')
+    getOffers('anthropic')
     defaultsForm.value = { model: d.model || '', max_tokens: d.max_tokens, system_prompt: d.system_prompt || '' }
     webForm.value = {
       support: w.support || 'disabled',

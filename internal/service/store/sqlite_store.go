@@ -1017,12 +1017,7 @@ func maskSecrets(fc *config.FileConfig) {
 	fc.WebSearch = ws
 
 	// Mask proxy keys.
-	if fc.Proxy.Response.APIKey != "" {
-		fc.Proxy.Response.APIKey = maskAPIKey(fc.Proxy.Response.APIKey)
-	}
-	if fc.Proxy.Anthropic.APIKey != "" {
-		fc.Proxy.Anthropic.APIKey = maskAPIKey(fc.Proxy.Anthropic.APIKey)
-	}
+	// Proxy API keys are inherited from providers; masked at provider level.
 }
 
 // maskAPIKey masks an API key: first 4 + "****" + last 4.

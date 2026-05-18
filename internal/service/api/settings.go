@@ -102,23 +102,35 @@ func (r *Router) handlePutMode(w http.ResponseWriter, req *http.Request) {
 func (r *Router) handleGetCapabilities(w http.ResponseWriter, req *http.Request) {
 	cfg := r.runtime.Current()
 	respondJSON(w, http.StatusOK, map[string]any{
-		"transform":       true,
-		"proxy_openai":    cfg.Config.HasOpenAIProxy(),
-		"proxy_anthropic": cfg.Config.HasAnthropicProxy(),
+		"transform":              true,
+		"proxy_openai":           cfg.Config.OpenAIProxyEnabled,
+		"proxy_anthropic":        cfg.Config.AnthropicProxyEnabled,
+		"openai_provider":        cfg.Config.OpenAIProvider,
+		"anthropic_provider":     cfg.Config.AnthropicProvider,
+		"openai_model_map":       cfg.Config.OpenAIProxyModelMap,
+		"anthropic_model_map":    cfg.Config.AnthropicProxyModelMap,
 	})
 }
 
 // PUT /capabilities/proxy/response
 func (r *Router) handlePutResponseProxyEnabled(w http.ResponseWriter, req *http.Request) {
 	var body struct {
-		Enabled bool `json:"enabled"`
+		Enabled   bool              `json:"enabled"`
+		Provider  string            `json:"provider"`
+		ModelMap  map[string]string `json:"model_map"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid_json", "无效的 JSON 请求体")
 		return
 	}
 	err := r.modifyConfig(func(cfg *config.Config) error {
-		cfg.ResponseProxy.Enabled = body.Enabled
+		cfg.OpenAIProxyEnabled = body.Enabled
+		if body.Provider != "" {
+			cfg.OpenAIProvider = body.Provider
+		}
+		if body.ModelMap != nil {
+			cfg.OpenAIProxyModelMap = body.ModelMap
+		}
 		return nil
 	})
 	if err != nil {
@@ -134,14 +146,22 @@ func (r *Router) handlePutResponseProxyEnabled(w http.ResponseWriter, req *http.
 // PUT /capabilities/proxy/anthropic
 func (r *Router) handlePutAnthropicProxyEnabled(w http.ResponseWriter, req *http.Request) {
 	var body struct {
-		Enabled bool `json:"enabled"`
+		Enabled   bool              `json:"enabled"`
+		Provider  string            `json:"provider"`
+		ModelMap  map[string]string `json:"model_map"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid_json", "无效的 JSON 请求体")
 		return
 	}
 	err := r.modifyConfig(func(cfg *config.Config) error {
-		cfg.AnthropicProxy.Enabled = body.Enabled
+		cfg.AnthropicProxyEnabled = body.Enabled
+		if body.Provider != "" {
+			cfg.AnthropicProvider = body.Provider
+		}
+		if body.ModelMap != nil {
+			cfg.AnthropicProxyModelMap = body.ModelMap
+		}
 		return nil
 	})
 	if err != nil {

@@ -130,7 +130,7 @@
       <div class="modal-content" style="max-width: 400px;">
         <h2 class="modal-title">确认删除</h2>
         <p>确定要删除 Provider <strong>{{ deleteTarget.key }}</strong> 吗？</p>
-        <p class="text-secondary mt-2" style="font-size: 12px;">此操作将暂存为待处理变更，需在变更管理页应用后生效。</p>
+        
         <div class="modal-actions">
           <button class="btn btn-ghost" @click="deleteTarget=null">取消</button>
           <button class="btn btn-danger" @click="doDelete">删除</button>

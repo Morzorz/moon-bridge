@@ -35,18 +35,15 @@ func (cfg Config) ToFileConfig() FileConfig {
 		Cache:       toCacheFileConfig(cfg.Cache),
 		Persistence: PersistenceFileConfig{ActiveProvider: cfg.Persistence.ActiveProvider},
 		Proxy: ProxyFileConfig{
-			Response: ProxyTargetFileConfig{
-				Enabled: cfg.ResponseProxy.Enabled,
-				BaseURL: cfg.ResponseProxy.ProviderBaseURL,
-				APIKey:  cfg.ResponseProxy.ProviderAPIKey,
-				Model:   cfg.ResponseProxy.Model,
+			Response: ProxyTargetRef{
+				Enabled:  cfg.OpenAIProxyEnabled,
+				Provider: cfg.OpenAIProvider,
+				ModelMap: cfg.OpenAIProxyModelMap,
 			},
-			Anthropic: ProxyTargetFileConfig{
-				Enabled: cfg.AnthropicProxy.Enabled,
-				BaseURL: cfg.AnthropicProxy.ProviderBaseURL,
-				APIKey:  cfg.AnthropicProxy.ProviderAPIKey,
-				Model:   cfg.AnthropicProxy.Model,
-				Version: cfg.AnthropicProxy.ProviderVersion,
+			Anthropic: ProxyTargetRef{
+				Enabled:  cfg.AnthropicProxyEnabled,
+				Provider: cfg.AnthropicProvider,
+				ModelMap: cfg.AnthropicProxyModelMap,
 			},
 		},
 	}

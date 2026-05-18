@@ -34,7 +34,7 @@
         <div class="card">
           <div class="card-header"><span class="card-title">缓存命中率</span></div>
           <div class="card-value" style="font-size:24px;">
-            {{ s.cache_hit_rate != null ? (s.cache_hit_rate * 100).toFixed(1) + '%' : '—' }}
+            {{ s.cache_hit_rate != null ? s.cache_hit_rate.toFixed(1) + '%' : '—' }}
           </div>
         </div>
         <div class="card">

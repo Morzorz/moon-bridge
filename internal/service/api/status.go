@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"moonbridge/internal/logger"
 )
 
 // ---- Status ----
@@ -118,9 +119,7 @@ func (r *Router) handleGetStatsSummary(w http.ResponseWriter, req *http.Request)
 
 // GET /logs
 func (r *Router) handleGetLogs(w http.ResponseWriter, req *http.Request) {
-	// The current logger package doesn't expose a ring buffer for recent entries.
-	// This endpoint returns a placeholder until a log ring buffer is implemented.
-	respondJSON(w, http.StatusOK, []any{})
+	respondJSON(w, http.StatusOK, logger.GlobalLogBuffer().RecentLogs())
 }
 
 // GET /version

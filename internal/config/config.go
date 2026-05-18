@@ -77,9 +77,13 @@ type Config struct {
 	ProviderDefs   map[string]ProviderDef
 	Cache          CacheConfig
 	Persistence    PersistenceConfig
-	ResponseProxy  ResponseProxyConfig
-	AnthropicProxy AnthropicProxyConfig
-	Extensions     map[string]ExtensionSettings
+	OpenAIProxyEnabled     bool
+	AnthropicProxyEnabled  bool
+	OpenAIProvider         string            // references ProviderDefs key
+	AnthropicProvider      string            // references ProviderDefs key
+	OpenAIProxyModelMap    map[string]string // incoming model → upstream model
+	AnthropicProxyModelMap map[string]string
+	Extensions             map[string]ExtensionSettings
 
 	extensionSpecs extensionSpecIndex
 }
@@ -212,21 +216,6 @@ type OfferEntry struct {
 	Overrides    *ModelDef   // optional provider-specific overrides
 }
 
-type ResponseProxyConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	Model           string
-	ProviderBaseURL string `yaml:"base_url"`
-	ProviderAPIKey  string `yaml:"api_key"`
-}
-
-type AnthropicProxyConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	Model           string
-	ProviderBaseURL string `yaml:"base_url"`
-	ProviderAPIKey  string `yaml:"api_key"`
-	ProviderVersion string `yaml:"version"`
-}
-
 // Save persists the config to its YAML file (ConfigFilePath).
 func (cfg Config) Save() error {
 	if cfg.ConfigFilePath == "" {
@@ -236,11 +225,19 @@ func (cfg Config) Save() error {
 }
 
 func (cfg Config) HasOpenAIProxy() bool {
-	return cfg.ResponseProxy.Enabled && cfg.ResponseProxy.ProviderBaseURL != ""
+	if !cfg.OpenAIProxyEnabled || cfg.OpenAIProvider == "" {
+		return false
+	}
+	def, ok := cfg.ProviderDefs[cfg.OpenAIProvider]
+	return ok && def.BaseURL != ""
 }
 
 func (cfg Config) HasAnthropicProxy() bool {
-	return cfg.AnthropicProxy.Enabled && cfg.AnthropicProxy.ProviderBaseURL != ""
+	if !cfg.AnthropicProxyEnabled || cfg.AnthropicProvider == "" {
+		return false
+	}
+	def, ok := cfg.ProviderDefs[cfg.AnthropicProvider]
+	return ok && def.BaseURL != ""
 }
 
 // ReasoningLevelPreset describes a supported reasoning effort level.
@@ -273,16 +270,7 @@ func (cfg Config) Validate() error {
 		return err
 	}
 	var err error
-	switch cfg.Mode {
-	case ModeTransform:
-		err = cfg.validateTransform()
-	case ModeCaptureResponse:
-		err = cfg.ResponseProxy.Validate("developer.proxy.response")
-	case ModeCaptureAnthropic:
-		err = cfg.AnthropicProxy.Validate("developer.proxy.anthropic")
-	default:
-		return fmt.Errorf("invalid mode %q", cfg.Mode)
-	}
+	return cfg.validateTransform()
 	if err != nil {
 		return err
 	}
@@ -378,26 +366,6 @@ func (cfg Config) validateSearchConfig() error {
 	return nil
 }
 
-func (cfg ResponseProxyConfig) Validate(prefix string) error {
-	if cfg.ProviderBaseURL == "" {
-		return fmt.Errorf("%s.provider.base_url is required", prefix)
-	}
-	if cfg.ProviderAPIKey == "" {
-		return fmt.Errorf("%s.provider.api_key is required", prefix)
-	}
-	return nil
-}
-
-func (cfg AnthropicProxyConfig) Validate(prefix string) error {
-	if cfg.ProviderBaseURL == "" {
-		return fmt.Errorf("%s.provider.base_url is required", prefix)
-	}
-	if cfg.ProviderAPIKey == "" {
-		return fmt.Errorf("%s.provider.api_key is required", prefix)
-	}
-	return nil
-}
-
 // ModelFor resolves a model alias to the upstream model name via Routes.
 // Supports "provider/model" direct reference.
 func (cfg Config) ModelFor(model string) string {
@@ -470,9 +438,6 @@ func (cfg Config) DefaultModelAlias() string {
 }
 
 func (cfg Config) CodexModel() string {
-	if cfg.Mode == ModeCaptureResponse && cfg.ResponseProxy.Model != "" {
-		return cfg.ResponseProxy.Model
-	}
 	return cfg.DefaultModelAlias()
 }
 
